@@ -13,7 +13,7 @@ let allCategories = [];
 // 转化率异常阈值
 const DETAIL_RATE_CAPS = {
   exposure_claim: 0.40,   // 曝光领取率 40%
-  claim_redeem: 0.40,     // 领取核销率 40%
+  claim_redeem: 0.80,     // 领取核销率 80%
   exposure_redeem: 0.10,  // 曝光核销率 10%
   store_redeem: 1.00,     // 到店核销率 100%
 };
@@ -265,6 +265,54 @@ document.addEventListener('click', (e) => {
   if (!e.target.closest('.multi-select-wrap')) {
     document.querySelectorAll('.multi-select-dropdown').forEach(el => el.classList.remove('show'));
     document.querySelectorAll('.multi-select-btn').forEach(el => el.classList.remove('open'));
+  }
+});
+
+// 品牌搜索下拉
+function showBrandDropdown(query) {
+  const dd = document.getElementById('brand-search-dropdown');
+  if (!dd) return;
+  const q = (query || '').trim().toLowerCase();
+  if (!q) { dd.style.display = 'none'; return; }
+
+  // 从 detailData 中提取唯一品牌
+  const seen = new Set();
+  const matches = [];
+  for (const row of detailData) {
+    const key = row.brand_id;
+    if (seen.has(key)) continue;
+    if (String(row.brand_id).includes(q) || (row.brand_name || '').toLowerCase().includes(q)) {
+      seen.add(key);
+      matches.push({ id: row.brand_id, name: row.brand_name });
+      if (matches.length >= 10) break;
+    }
+  }
+
+  if (matches.length === 0) { dd.style.display = 'none'; return; }
+
+  dd.innerHTML = matches.map(m =>
+    `<div class="search-dd-item" onclick="selectBrandSearch('${m.id}','${(m.name||'').replace(/'/g,"\\'")}')">
+      <span style="color:#8C8C8C;font-size:11px">${m.id}</span> ${m.name}
+    </div>`
+  ).join('');
+  dd.style.display = 'block';
+}
+
+function selectBrandSearch(id, name) {
+  document.getElementById('brand-search').value = name || id;
+  hideBrandDropdown();
+  filterDetailData();
+}
+
+function hideBrandDropdown() {
+  const dd = document.getElementById('brand-search-dropdown');
+  if (dd) dd.style.display = 'none';
+}
+
+// 点击外部关闭下拉
+document.addEventListener('click', function(e) {
+  if (!e.target.closest('#brand-search') && !e.target.closest('#brand-search-dropdown')) {
+    hideBrandDropdown();
   }
 });
 

@@ -21,7 +21,7 @@
   <!-- Tab Bar -->
   <div class="tab-bar">
     <div class="tab-item active" data-tab="best-practice" onclick="switchTab('best-practice')">
-      🏆 分类目最佳实践
+      🏆 行业最佳实践
     </div>
     <div class="tab-item" data-tab="activity-detail" onclick="switchTab('activity-detail')">
       📋 品牌活动明细
@@ -32,7 +32,7 @@
   <div id="best-practice-section" class="tab-content">
 
     <!-- 分类目 Top3 最佳实践 -->
-    <h2 class="section-title" style="padding:20px 32px 0">🏆 分类目最佳实践</h2>
+    <h2 class="section-title" style="padding:20px 32px 0">🏆 行业最佳实践</h2>
     <p style="padding:0 32px;margin:4px 0 0;font-size:13px;color:var(--text-muted)">
       基于优惠券活动数据，展示各业态 Top3 标杆活动的核心转化指标
     </p>
@@ -66,7 +66,12 @@
         </select>
 
         <label class="filter-label">品牌</label>
-        <input type="text" id="brand-search" placeholder="名称或ID" onkeyup="if(event.key==='Enter')filterDetailData()">
+        <div style="position:relative;display:inline-block">
+          <input type="text" id="brand-search" placeholder="名称或ID" autocomplete="off"
+            oninput="showBrandDropdown(this.value)" onfocus="showBrandDropdown(this.value)"
+            onkeyup="if(event.key==='Enter'){hideBrandDropdown();filterDetailData()}">
+          <div id="brand-search-dropdown" class="search-dropdown" style="display:none"></div>
+        </div>
 
         <div class="multi-select-wrap" id="ms-assistant"></div>
         <div class="multi-select-wrap" id="ms-sp"></div>

@@ -172,9 +172,10 @@ function generateDiagCard() {
   const input = document.getElementById('brand-diag-input').value.trim();
   if (!input) return;
 
-  // 找品牌
+  // 找品牌 — 支持 "11409 – 九毛九" 格式
+  const inputClean = input.split(/\s*[-–—]\s*/)[0].trim();
   const brandId = Object.keys(latestByBrand).find(id =>
-    id === input || (latestByBrand[id]?.brand_name || '').includes(input)
+    id === inputClean || id === input || (latestByBrand[id]?.brand_name || '').includes(inputClean)
   );
   if (!brandId) {
     document.getElementById('diag-card-container').innerHTML = '<p style="color:#FF4D4F;padding:16px">未找到该品牌</p>';

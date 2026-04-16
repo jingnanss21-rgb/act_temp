@@ -641,6 +641,7 @@ body {
 .fg-num { font-size: 12px; font-weight: 700; white-space: nowrap; }
 .fg-arrow { color: var(--text-muted); font-size: 8px; flex-shrink: 0; }
 .est-mark { font-size: 9px; opacity: 0.8; }
+.fg-est-label { text-align: center; font-size: 9px; color: #8C8C8C; margin-top: 2px; cursor: help; }
 
 /* 第三层：模态弹窗 */
 .bp-modal {

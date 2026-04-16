@@ -8,7 +8,7 @@ const CATEGORY_COLOR = { '茶饮咖啡': '#2563EB', '中式快餐': '#EA580C', '
 const CATEGORY_BG = { '茶饮咖啡': '#EFF6FF', '中式快餐': '#FFF7ED', '西式快餐': '#FEF2F2', '正餐': '#EFF6FF', '小吃': '#FEFCE8', '甜品烘焙': '#FDF2F8' };
 const CATEGORY_BAR = { '茶饮咖啡': '#93C5FD', '中式快餐': '#FDBA74', '西式快餐': '#FCA5A5', '正餐': '#93C5FD', '小吃': '#FDE68A', '甜品烘焙': '#F9A8D4' };
 
-const RATE_CAPS = { exposure_claim: 0.40, claim_redeem: 0.40, exposure_redeem: 0.10, store_redeem: 1.00 };
+const RATE_CAPS = { exposure_claim: 0.40, claim_redeem: 0.80, exposure_redeem: 0.10, store_redeem: 1.00 };
 const METRICS = [
   { key: 'exposure_claim',  label: '曝光领取率', calcField: 'exposure_claim_rate' },
   { key: 'claim_redeem',    label: '领取核销率', calcField: 'claim_redeem_rate' },
@@ -341,12 +341,13 @@ function openLayer2(catKey) {
         const step = funnelSteps[fi];
         const opacity = 1 - fi * 0.15;
         const numStr = step.value ? fmtNum(step.value) : '-';
-        const estMark = step.est ? ' <span class="est-mark">*预估</span>' : '';
+        const estLabel = step.est ? '<div class="fg-est-label" title="因活动维度到店核销数据缺失，暂按照品牌维度到店核销倒推">*预估</div>' : '';
         html += `<div class="fg-step" style="flex:1">
           <div class="fg-bar" style="background:${color};opacity:${opacity}">
             <span class="fg-label">${step.label}</span>
-            <span class="fg-num">${numStr}${estMark}</span>
+            <span class="fg-num">${numStr}</span>
           </div>
+          ${estLabel}
         </div>`;
         if (fi < funnelSteps.length - 1) {
           html += `<div class="fg-arrow">▶</div>`;
