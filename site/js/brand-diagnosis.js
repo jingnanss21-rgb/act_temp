@@ -159,6 +159,7 @@ function renderDiagSearch(container) {
             oninput="onDiagInput(this.value)" onfocus="onDiagInput(this.value)">
           <div class="diag-dropdown" id="diag-dropdown"></div>
           <button class="btn-primary" onclick="runDiagnosis()">生成诊断</button>
+          <button class="btn-primary" style="background:#10B981;margin-left:8px;display:none" id="diag-export-btn" onclick="exportDiagnosis()">📷 导出图片</button>
         </div>
       </div>
       <div id="diag-result"></div>
@@ -421,11 +422,27 @@ function renderDiagResult() {
 
   renderScoreRing(totalScore, scoreColor, scoreLabel);
   renderBenchmark();
+  // 显示导出按钮
+  const exportBtn = document.getElementById('diag-export-btn');
+  if (exportBtn) exportBtn.style.display = 'inline-block';
 }
 
 // ============================================================
 // 健康评分环形图（Canvas）
 // ============================================================
+// 导出诊断报告为图片
+async function exportDiagnosis() {
+  const container = document.getElementById('diag-result');
+  if (!container) return;
+  try {
+    const canvas = await html2canvas(container, { scale: 2, useCORS: true, backgroundColor: '#F8FAFC' });
+    const link = document.createElement('a');
+    link.download = `品牌诊断_${diagBrandData?.brand_name || 'report'}_${new Date().toISOString().slice(0,10)}.png`;
+    link.href = canvas.toDataURL('image/png');
+    link.click();
+  } catch (e) { console.error('导出失败', e); }
+}
+
 function renderScoreRing(score, color, label) {
   const wrap = document.getElementById('diag-score-ring');
   wrap.innerHTML = `<canvas id="score-canvas" width="160" height="160"></canvas>
@@ -552,35 +569,26 @@ function renderBenchmark() {
       </div>
     </div>
 
-    <!-- 位置刻度尺 -->
-    <div class="diag-scale">
-      <div class="scale-bar">
-        <div class="scale-fill" style="width:${brandPct}%;background:${isWeak ? '#DC2626' : '#2563EB'}"></div>
-        <!-- FIX: Bug #5 - 中位数标记增强：加粗线+标签背景+菱形 -->
-        <div class="scale-marker scale-med" style="left:${medPct}%">
-          <div style="width:2px;height:28px;background:#64748B;margin:0 auto"></div>
-          <div style="font-size:13px;color:#64748B;font-weight:600;background:#F1F5F9;padding:2px 8px;border-radius:4px;white-space:nowrap;margin-top:4px">◆ 中位 ${fmtPctDiag(med)}</div>
-        </div>
-        <!-- 品牌标记 -->
-        <div class="scale-marker scale-brand" style="left:${Math.min(brandPct, 95)}%">
-          <div class="sm-dot" style="background:${isWeak ? '#DC2626' : '#2563EB'}"></div>
-          <div class="sm-label" style="color:${isWeak ? '#DC2626' : '#2563EB'};font-weight:600;white-space:nowrap;font-size:12px">▼ ${b.brand_name} ${fmtPctDiag(brandVal)}${diffTop1 < 0.001 ? ' 🥇' : ''}</div>
-        </div>
-        <!-- FIX: Bug #4 - Top3标记交错上下防碰撞，品牌=Top1时合并 -->
+    <!-- 位置刻度尺 - 简化 -->
+    <div style="padding:16px 0">
+      <div style="position:relative;height:32px;background:#F1F5F9;border-radius:6px;overflow:visible">
+        <!-- 进度条 -->
+        <div style="position:absolute;left:0;top:0;height:100%;background:${isWeak ? 'linear-gradient(90deg,#FEE2E2,#FECACA)' : 'linear-gradient(90deg,#DBEAFE,#93C5FD)'};border-radius:6px;width:${Math.min(brandPct, 100)}%"></div>
+        <!-- 中位线 -->
+        <div style="position:absolute;left:${medPct}%;top:-4px;bottom:-4px;width:2px;background:#F59E0B;z-index:2"></div>
+      </div>
+      <div style="display:flex;justify-content:space-between;margin-top:8px;font-size:12px;flex-wrap:wrap;gap:4px">
+        <span style="color:${isWeak ? '#DC2626' : '#2563EB'};font-weight:600">▼ ${b.brand_name} ${fmtPctDiag(brandVal)}</span>
+        <span style="color:#F59E0B;font-weight:500">◆ 中位 ${fmtPctDiag(med)}</span>
         ${top3.map((t, i) => {
-          if (i === 0 && diffTop1 < 0.001) return ''; // 品牌就是Top1，已在品牌标记中合并
-          const pos = (t[mk.key] / scaleMax) * 100;
           const medals = ['🥇', '🥈', '🥉'];
-          const isTop = i % 2 === 0; // 交错上下
-          return `<div class="scale-marker" style="left:${Math.min(pos, 98)}%;${isTop ? 'top:-30px' : 'bottom:-30px'}">
-            <div style="font-size:11px;white-space:nowrap;text-align:center">${medals[i]}<br><b>${fmtPctDiag(t[mk.key])}</b></div>
-          </div>`;
+          return `<span style="color:#10B981;font-weight:500">${medals[i]} ${fmtPctDiag(t[mk.key])}</span>`;
         }).join('')}
       </div>
-      <div class="scale-diff">
-        <span style="color:${isWeak ? '#DC2626' : '#16A34A'};font-size:14px">距中位${isWeak ? '还差' : '超出'} <b>${(diffMed * 100).toFixed(1)}</b> 个百分点</span>
-        <span style="color:#D97706;margin-left:16px;font-size:14px">${diffTop1 < 0.001 ? '🎉 你就是 Top1！' : `距Top1还差 <b>${(diffTop1 * 100).toFixed(1)}</b> 个百分点`}</span>
-      </div>
+    </div>
+    <div class="scale-diff" style="margin-bottom:16px">
+      <span style="color:${isWeak ? '#DC2626' : '#16A34A'};font-size:13px">距中位${isWeak ? '还差' : '超出'} <b>${(diffMed * 100).toFixed(1)}</b> 个百分点</span>
+      <span style="color:#D97706;margin-left:16px;font-size:13px">${diffTop1 < 0.001 ? '🎉 你就是 Top1！' : `距Top1还差 <b>${(diffTop1 * 100).toFixed(1)}</b> 个百分点`}</span>
     </div>
 
     <!-- Top3 列表 -->
