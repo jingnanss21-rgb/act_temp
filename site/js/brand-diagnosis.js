@@ -1,410 +1,614 @@
 // ============================================================
-// 品牌诊断模块 - brand-diagnosis.js
-// A区：品牌概览 + 健康评分环形图
-// B区：四维雷达图 + 指标对比表（可点击联动C区）
-// C区：行业标杆参考（位置刻度尺 + Top3 列表 + 标杆洞察）
-// D区：活动明细（可折叠，4指标进度条 + 迷你漏斗）
+// 品牌诊断 Tab — 独立页面
+// 区域 A: 品牌概览 + 健康评分
+// 区域 B: 雷达图 + 指标对比表
+// 区域 C: 行业标杆参考（刻度尺 + Top3）
+// 区域 D: 活动明细（卡片式 2×2 网格）
 // ============================================================
 
+// 全局数据
+let diagActivities = [];
+let diagBrandDaily = {};  // brand_id -> latest record
+let diagMerchants = {};   // brand_id -> merchant record
+let diagCatMedians = {};  // category -> { metric -> median }
+let diagCatBest = {};     // category -> { metric -> top3_avg }
+let diagCatP25 = {};      // category -> { metric -> p25 value }
+let diagCatTop3 = {};     // category -> { metric -> [top3 items] }
+let diagAllBrands = [];   // [{brand_id, brand_name}]
+let diagCurrentBrand = null;
+let diagSelectedMetric = 'exposure_claim'; // 默认选中
+
 const DIAG_METRICS = [
-  { key: 'exposure_claim', label: '曝光领取率', short: '曝光领取' },
-  { key: 'claim_redeem', label: '领取核销率', short: '领取核销' },
-  { key: 'exposure_redeem', label: '曝光核销率', short: '曝光核销' },
-  { key: 'store_redeem', label: '到店核销率', short: '到店核销' },
+  { key: 'exposure_claim', label: '曝光领取率', desc: '券吸引力' },
+  { key: 'claim_redeem', label: '领取核销率', desc: '券转化力' },
+  { key: 'exposure_redeem', label: '曝光核销率', desc: '全链路效率' },
+  { key: 'store_redeem', label: '到店核销率', desc: '到店转化力' },
 ];
 
-const DIAG_COLORS = {
-  brand: '#1677FF',
-  good: '#52C41A',
-  warn: '#FAAD14',
-  bad: '#FF4D4F',
-  muted: '#8C8C8C',
-  best: '#D4A017',
-};
+const DIAG_CATEGORIES = ['茶饮咖啡', '中式快餐', '西式快餐', '正餐', '小吃', '甜品烘焙'];
 
-let diagSelectedMetric = 0; // 默认选中第一个指标
-let diagBrandData = null;
+const RATE_CAPS = { exposure_claim: 0.40, claim_redeem: 0.80, exposure_redeem: 0.10 };
 
-// 健康评分计算：4维度各25分，基准线为同类目Top3均值
-function calcHealthScore(brandRates, top3Avgs) {
-  let total = 0;
-  const details = [];
-  for (let i = 0; i < DIAG_METRICS.length; i++) {
-    const mk = DIAG_METRICS[i];
-    const bv = brandRates[mk.key] || 0;
-    const t3 = top3Avgs[mk.key] || 1;
-    const score = Math.min(bv / t3, 1.0) * 25;
-    total += score;
-    details.push({ key: mk.key, label: mk.label, brandVal: bv, top3Avg: t3, score });
+// ============================================================
+// 初始化
+// ============================================================
+async function initDiagnosis() {
+  const container = document.getElementById('diagnosis-container');
+  container.innerHTML = '<div class="loading"><div class="spinner"></div><p>加载品牌诊断数据...</p></div>';
+
+  try {
+    // 并行加载数据
+    const [actRes, bdRes, mcRes] = await Promise.all([
+      supabaseClient.from('tem_v_activity_detail').select('*'),
+      supabaseClient.from('tem_brand_daily').select('*').order('report_date', { ascending: false }),
+      supabaseClient.from('tem_merchant_contacts').select('brand_id,brand_name,operating_sp,contact_assistant'),
+    ]);
+
+    // 活动数据（过滤曝光=0）
+    diagActivities = (actRes.data || []).filter(a => a.exposure_uv > 0 && a.exposure_pv > 0);
+
+    // 品牌日报（按brand_id取最新）
+    for (const bd of (bdRes.data || [])) {
+      if (!diagBrandDaily[bd.brand_id]) diagBrandDaily[bd.brand_id] = bd;
+    }
+
+    // 商户信息
+    for (const mc of (mcRes.data || [])) {
+      diagMerchants[mc.brand_id] = mc;
+    }
+
+    // 构建品牌列表（只含跟进表里的品牌）
+    const brandSet = new Set();
+    diagAllBrands = [];
+    for (const a of diagActivities) {
+      if (!brandSet.has(a.brand_id) && diagMerchants[a.brand_id]) {
+        brandSet.add(a.brand_id);
+        diagAllBrands.push({ brand_id: a.brand_id, brand_name: a.brand_name });
+      }
+    }
+    diagAllBrands.sort((a, b) => a.brand_name.localeCompare(b.brand_name, 'zh'));
+
+    // 计算各类目的中位数、P25、Top3
+    computeCategoryStats();
+
+    // 渲染搜索UI
+    renderDiagSearch(container);
+  } catch (err) {
+    container.innerHTML = `<div style="padding:32px;color:#DC2626">加载失败: ${err.message}</div>`;
   }
-  return { total: Math.round(total), details };
 }
 
-// 环形图 SVG
-function healthRingSvg(score, size = 120) {
-  const r = (size - 16) / 2;
-  const circumference = 2 * Math.PI * r;
-  const pct = score / 100;
-  const offset = circumference * (1 - pct);
-  let color = DIAG_COLORS.good;
-  let label = '优秀';
-  if (score < 60) { color = DIAG_COLORS.bad; label = '需关注'; }
-  else if (score < 80) { color = DIAG_COLORS.warn; label = '待优化'; }
+// ============================================================
+// 计算类目统计
+// ============================================================
+function computeCategoryStats() {
+  // 按类目分组活动
+  const catActivities = {};
+  for (const a of diagActivities) {
+    const bd = diagBrandDaily[a.brand_id];
+    if (!bd) continue;
+    const cat = bd.category_l4;
+    if (!cat || !DIAG_CATEGORIES.includes(cat)) continue;
 
-  return `<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">
-    <circle cx="${size/2}" cy="${size/2}" r="${r}" fill="none" stroke="#F0F0F0" stroke-width="10"/>
-    <circle cx="${size/2}" cy="${size/2}" r="${r}" fill="none" stroke="${color}" stroke-width="10"
-      stroke-dasharray="${circumference}" stroke-dashoffset="${offset}"
-      stroke-linecap="round" transform="rotate(-90 ${size/2} ${size/2})"
-      style="transition: stroke-dashoffset 0.8s ease"/>
-    <text x="${size/2}" y="${size/2 - 6}" text-anchor="middle" font-size="28" font-weight="800" fill="${color}">${score}</text>
-    <text x="${size/2}" y="${size/2 + 14}" text-anchor="middle" font-size="11" fill="${DIAG_COLORS.muted}">/ 100</text>
-    <text x="${size/2}" y="${size/2 + 30}" text-anchor="middle" font-size="12" font-weight="600" fill="${color}">${label}</text>
-  </svg>`;
+    // 计算转化率
+    const item = {
+      ...a,
+      category: cat,
+      exposure_claim: a.claim_pv / a.exposure_pv,
+      claim_redeem: a.redeem_pv / a.claim_pv,
+      exposure_redeem: a.redeem_pv / a.exposure_pv,
+      store_redeem: parseStoreRate(bd.w7_store_redeem_rate_uv),
+    };
+
+    // 异常过滤
+    if (item.exposure_claim > (RATE_CAPS.exposure_claim || 1)) continue;
+    if (item.claim_redeem > (RATE_CAPS.claim_redeem || 1)) continue;
+    if (item.exposure_redeem > (RATE_CAPS.exposure_redeem || 1)) continue;
+    if (item.store_redeem >= 1.0) continue;
+
+    if (!catActivities[cat]) catActivities[cat] = [];
+    catActivities[cat].push(item);
+  }
+
+  for (const cat of DIAG_CATEGORIES) {
+    const items = catActivities[cat] || [];
+    diagCatMedians[cat] = {};
+    diagCatBest[cat] = {};
+    diagCatP25[cat] = {};
+    diagCatTop3[cat] = {};
+
+    for (const mk of DIAG_METRICS) {
+      const vals = items.map(i => i[mk.key]).filter(v => !isNaN(v) && v > 0).sort((a, b) => a - b);
+      diagCatMedians[cat][mk.key] = vals.length > 0 ? vals[Math.floor(vals.length / 2)] : 0;
+
+      // P25（25百分位）
+      if (vals.length > 0) {
+        const p25Idx = Math.floor(vals.length * 0.75); // 75th percentile = top 25%
+        diagCatP25[cat][mk.key] = vals[p25Idx] || vals[vals.length - 1];
+      } else {
+        diagCatP25[cat][mk.key] = 0;
+      }
+
+      // Top3
+      const sorted = [...items].filter(i => !isNaN(i[mk.key]) && i[mk.key] > 0)
+        .sort((a, b) => b[mk.key] - a[mk.key]);
+      diagCatTop3[cat][mk.key] = sorted.slice(0, 3);
+
+      // Top3 平均
+      const top3 = diagCatTop3[cat][mk.key];
+      diagCatBest[cat][mk.key] = top3.length > 0 ? top3.reduce((s, i) => s + i[mk.key], 0) / top3.length : 0;
+    }
+  }
 }
 
-// 雷达图 SVG（Canvas 版 - 用 SVG polygon）
-function radarChartSvg(brandVals, medianVals, bestVals, size = 220) {
-  const cx = size / 2, cy = size / 2, maxR = size / 2 - 30;
-  const labels = DIAG_METRICS.map(m => m.short);
-  const n = labels.length;
-  const angles = labels.map((_, i) => (Math.PI * 2 * i / n) - Math.PI / 2);
-
-  function toPoint(angle, val, maxVal) {
-    const r = maxR * Math.min(val / maxVal, 1);
-    return [cx + r * Math.cos(angle), cy + r * Math.sin(angle)];
-  }
-
-  // 找最大值作为坐标系
-  const allVals = [...Object.values(brandVals), ...Object.values(medianVals), ...Object.values(bestVals)].filter(v => !isNaN(v));
-  const maxVal = Math.max(...allVals, 0.01);
-
-  // 网格线
-  let gridLines = '';
-  for (let level = 1; level <= 4; level++) {
-    const pts = angles.map(a => toPoint(a, maxVal * level / 4, maxVal).join(',')).join(' ');
-    gridLines += `<polygon points="${pts}" fill="none" stroke="#E5E7EB" stroke-width="0.5"/>`;
-  }
-
-  // 轴线
-  let axisLines = '';
-  angles.forEach(a => {
-    const [ex, ey] = toPoint(a, maxVal, maxVal);
-    axisLines += `<line x1="${cx}" y1="${cy}" x2="${ex}" y2="${ey}" stroke="#E5E7EB" stroke-width="0.5"/>`;
-  });
-
-  // 标签
-  let labelTexts = '';
-  angles.forEach((a, i) => {
-    const [lx, ly] = toPoint(a, maxVal * 1.22, maxVal);
-    labelTexts += `<text x="${lx}" y="${ly}" text-anchor="middle" dominant-baseline="middle" font-size="11" fill="#333">${labels[i]}</text>`;
-  });
-
-  // 数据区域
-  function polyPoints(vals) {
-    const keys = DIAG_METRICS.map(m => m.key);
-    return angles.map((a, i) => toPoint(a, vals[keys[i]] || 0, maxVal).join(',')).join(' ');
-  }
-
-  const bestPoly = `<polygon points="${polyPoints(bestVals)}" fill="none" stroke="${DIAG_COLORS.best}" stroke-width="1.5" stroke-dasharray="4,3" opacity="0.7"/>`;
-  const medPoly = `<polygon points="${polyPoints(medianVals)}" fill="none" stroke="${DIAG_COLORS.muted}" stroke-width="1.5" stroke-dasharray="4,3" opacity="0.7"/>`;
-  const brandPoly = `<polygon points="${polyPoints(brandVals)}" fill="${DIAG_COLORS.brand}" fill-opacity="0.15" stroke="${DIAG_COLORS.brand}" stroke-width="2"/>`;
-
-  // 品牌数据点
-  let dots = '';
-  const keys = DIAG_METRICS.map(m => m.key);
-  angles.forEach((a, i) => {
-    const [px, py] = toPoint(a, brandVals[keys[i]] || 0, maxVal);
-    dots += `<circle cx="${px}" cy="${py}" r="3.5" fill="${DIAG_COLORS.brand}" stroke="#fff" stroke-width="1.5"/>`;
-  });
-
-  return `<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">
-    ${gridLines}${axisLines}${bestPoly}${medPoly}${brandPoly}${dots}${labelTexts}
-  </svg>
-  <div style="display:flex;gap:16px;justify-content:center;margin-top:4px;font-size:11px">
-    <span><span style="display:inline-block;width:12px;height:2px;background:${DIAG_COLORS.brand};margin-right:4px;vertical-align:middle"></span>品牌(蓝)</span>
-    <span><span style="display:inline-block;width:12px;height:2px;background:${DIAG_COLORS.muted};border-top:1px dashed ${DIAG_COLORS.muted};margin-right:4px;vertical-align:middle"></span>中位(灰)</span>
-    <span><span style="display:inline-block;width:12px;height:2px;background:${DIAG_COLORS.best};border-top:1px dashed ${DIAG_COLORS.best};margin-right:4px;vertical-align:middle"></span>最佳(金)</span>
-  </div>`;
+function parseStoreRate(val) {
+  if (!val) return NaN;
+  const s = String(val).trim();
+  if (s.includes('%')) return parseFloat(s) / 100;
+  const n = parseFloat(s);
+  return n > 1 ? n / 100 : n;
 }
 
-// 位置刻度尺
-function positionScaleBar(brandVal, medianVal, top3Items, metricLabel) {
-  const top1Val = top3Items.length > 0 ? top3Items[0].val : brandVal;
-  const maxVal = Math.max(top1Val * 1.1, brandVal * 1.1, medianVal * 1.1, 0.01);
-
-  function pct(v) { return Math.min(v / maxVal * 100, 100); }
-
-  const brandPct = pct(brandVal);
-  const medPct = pct(medianVal);
-
-  let markers = '';
-  top3Items.forEach((item, i) => {
-    const p = pct(item.val);
-    const icons = ['🥇', '🥈', '🥉'];
-    markers += `<div style="position:absolute;left:${p}%;transform:translateX(-50%);top:-18px;font-size:10px">${icons[i]}</div>`;
-  });
-
-  const gap = top1Val - brandVal;
-  const gapText = gap > 0 ? `距 Top1 还差 ${(gap * 100).toFixed(1)} 个百分点` : '已达到 Top1 水平';
-  const belowMedian = brandVal < medianVal;
-  const medGap = medianVal - brandVal;
-
-  return `<div style="position:relative;margin:16px 0 24px;padding-top:24px">
-    <div style="position:relative;height:8px;background:linear-gradient(90deg,#E5E7EB,${DIAG_COLORS.brand});border-radius:4px">
-      <div style="position:absolute;left:${medPct}%;top:-4px;width:2px;height:16px;background:${DIAG_COLORS.muted};z-index:1" title="中位数"></div>
-      <div style="position:absolute;left:${medPct}%;top:14px;font-size:9px;color:${DIAG_COLORS.muted};transform:translateX(-50%)">中位 ${fmtPct(medianVal)}</div>
-      ${markers}
-      <div style="position:absolute;left:${brandPct}%;top:-22px;transform:translateX(-50%)">
-        <div style="font-size:10px;color:${DIAG_COLORS.brand};font-weight:600;white-space:nowrap">▼ ${fmtPct(brandVal)}</div>
+// ============================================================
+// 渲染搜索UI
+// ============================================================
+function renderDiagSearch(container) {
+  container.innerHTML = `
+    <div class="diag-page">
+      <div class="diag-search-area" id="diag-search-area">
+        <div class="diag-search-box">
+          <input type="text" id="diag-input" class="diag-input" placeholder="输入品牌ID或品牌名称搜索..." autocomplete="off"
+            oninput="onDiagInput(this.value)" onfocus="onDiagInput(this.value)">
+          <div class="diag-dropdown" id="diag-dropdown"></div>
+          <button class="btn-primary" onclick="runDiagnosis()">生成诊断</button>
+        </div>
       </div>
+      <div id="diag-result"></div>
     </div>
-    <div style="margin-top:20px;text-align:center">
-      <span style="background:${belowMedian ? '#FFF1F0' : '#F6FFED'};color:${belowMedian ? DIAG_COLORS.bad : DIAG_COLORS.good};padding:4px 12px;border-radius:4px;font-size:12px;font-weight:500">
-        ${belowMedian ? `距中位还差 ${(medGap*100).toFixed(1)} 个百分点 | ` : ''}${gapText}
-      </span>
-    </div>
-  </div>`;
+  `;
+
+  // 点击外部关闭下拉
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('.diag-search-box')) {
+      document.getElementById('diag-dropdown').style.display = 'none';
+    }
+  });
 }
 
-// 生成品牌诊断
-function generateDiagCard() {
-  const input = document.getElementById('brand-diag-input').value.trim();
+function onDiagInput(val) {
+  const dd = document.getElementById('diag-dropdown');
+  if (!val.trim()) { dd.style.display = 'none'; return; }
+  const q = val.toLowerCase();
+  const matches = diagAllBrands.filter(b =>
+    b.brand_id.toLowerCase().includes(q) || b.brand_name.toLowerCase().includes(q)
+  ).slice(0, 15);
+  if (matches.length === 0) { dd.style.display = 'none'; return; }
+  dd.innerHTML = matches.map(b =>
+    `<div class="dd-item" onclick="selectDiagBrand('${b.brand_id}','${b.brand_name.replace(/'/g, "\\'")}')">${b.brand_id} — ${b.brand_name}</div>`
+  ).join('');
+  dd.style.display = 'block';
+}
+
+function selectDiagBrand(bid, name) {
+  document.getElementById('diag-input').value = `${bid} — ${name}`;
+  document.getElementById('diag-dropdown').style.display = 'none';
+}
+
+// ============================================================
+// 运行诊断
+// ============================================================
+function runDiagnosis() {
+  const input = document.getElementById('diag-input').value.trim();
   if (!input) return;
 
-  // 找品牌 — 支持 "11409 – 九毛九" 格式
-  const inputClean = input.split(/\s*[-–—]\s*/)[0].trim();
-  const brandId = Object.keys(latestByBrand).find(id =>
-    id === inputClean || id === input || (latestByBrand[id]?.brand_name || '').includes(inputClean)
-  );
-  if (!brandId) {
-    document.getElementById('diag-card-container').innerHTML = '<p style="color:#FF4D4F;padding:16px">未找到该品牌</p>';
+  // 解析品牌ID
+  let brandId = input;
+  const m = input.match(/^(\d+)/);
+  if (m) brandId = m[1];
+
+  // 查找品牌活动
+  const brandActivities = diagActivities.filter(a => String(a.brand_id) === brandId);
+  const brandDaily = diagBrandDaily[brandId];
+
+  if (brandActivities.length === 0 || !brandDaily) {
+    document.getElementById('diag-result').innerHTML =
+      '<div style="padding:24px;color:#DC2626;font-size:16px">未找到该品牌的活动数据</div>';
     return;
   }
 
-  const brandInfo = latestByBrand[brandId];
-  const catKey = brandInfo?.category_l4 || '';
-  const emoji = CATEGORY_EMOJI[catKey] || '';
-  const meds = catMedians[catKey] || {};
-
-  // 品牌的所有活动（过滤曝光=0）
-  const brandActivities = allActivitiesForBP.filter(a =>
-    String(a.brand_id) === String(brandId) && a.exposure_uv > 0
-  );
-
-  // 品牌聚合指标（PV维度）
-  const totalExpPv = brandActivities.reduce((s, a) => s + (a.exposure_pv || 0), 0);
-  const totalClmPv = brandActivities.reduce((s, a) => s + (a.claim_pv || 0), 0);
-  const totalRdmPv = brandActivities.reduce((s, a) => s + (a.redeem_pv || 0), 0);
-  const totalExpUv = brandActivities.reduce((s, a) => s + (a.exposure_uv || 0), 0);
-  const totalClmUv = brandActivities.reduce((s, a) => s + (a.claim_uv || 0), 0);
-  const totalRdmUv = brandActivities.reduce((s, a) => s + (a.redeem_uv || 0), 0);
-
-  const brandRates = {
-    exposure_claim: totalExpPv > 0 ? totalClmPv / totalExpPv : 0,
-    claim_redeem: totalClmPv > 0 ? totalRdmPv / totalClmPv : 0,
-    exposure_redeem: totalExpPv > 0 ? totalRdmPv / totalExpPv : 0,
-    store_redeem: parseRateValue(brandInfo?.w7_store_redeem_rate_uv) || 0,
+  diagCurrentBrand = {
+    brand_id: brandId,
+    brand_name: brandActivities[0].brand_name,
+    brand_daily: brandDaily,
+    activities: brandActivities,
+    category: brandDaily.category_l4 || '未知',
   };
 
-  // Top3 均值和最佳值
-  const top3Avgs = {};
-  const bestVals = {};
-  const top3ByMetric = {};
-  for (const mk of DIAG_METRICS) {
-    const bpItems = (bestPracticeData[catKey] || {})[mk.key] || [];
-    const vals = bpItems.map(i => i[mk.calcField || mk.key + '_rate'] || 0).filter(v => v > 0);
-    top3Avgs[mk.key] = vals.length > 0 ? vals.reduce((a, b) => a + b, 0) / vals.length : 0.01;
-    bestVals[mk.key] = vals.length > 0 ? vals[0] : 0;
-    top3ByMetric[mk.key] = bpItems.slice(0, 3).map(i => ({
-      brand_name: i.brand_name,
-      activity_name: i.activity_name,
-      val: i[mk.calcField || mk.key + '_rate'] || 0,
-    }));
-  }
+  diagSelectedMetric = 'exposure_claim';
 
-  // 健康评分
-  const health = calcHealthScore(brandRates, top3Avgs);
-  const weakMetrics = health.details.filter(d => d.brandVal < (meds[d.key] || 0));
+  // 计算品牌维度指标
+  const totalExposurePv = brandActivities.reduce((s, a) => s + (a.exposure_pv || 0), 0);
+  const totalClaimPv = brandActivities.reduce((s, a) => s + (a.claim_pv || 0), 0);
+  const totalRedeemPv = brandActivities.reduce((s, a) => s + (a.redeem_pv || 0), 0);
+  const storeRate = parseStoreRate(brandDaily.w7_store_redeem_rate_uv);
 
-  // 中位数值
-  const medianVals = {
-    exposure_claim: meds.exposure_claim || 0,
-    claim_redeem: meds.claim_redeem || 0,
-    exposure_redeem: meds.exposure_redeem || 0,
-    store_redeem: meds.store_redeem || 0,
+  diagCurrentBrand.metrics = {
+    exposure_claim: totalClaimPv / totalExposurePv || 0,
+    claim_redeem: totalRedeemPv / totalClaimPv || 0,
+    exposure_redeem: totalRedeemPv / totalExposurePv || 0,
+    store_redeem: storeRate || 0,
   };
 
-  diagBrandData = { brandId, brandInfo, catKey, brandActivities, brandRates, medianVals, bestVals, top3Avgs, top3ByMetric, health, weakMetrics, totalExpPv, totalClmPv, totalRdmPv, totalExpUv, totalClmUv, totalRdmUv };
-  diagSelectedMetric = weakMetrics.length > 0 ? DIAG_METRICS.findIndex(m => m.key === weakMetrics[0].key) : 0;
+  diagCurrentBrand.totals = {
+    exposure_pv: totalExposurePv,
+    claim_pv: totalClaimPv,
+    redeem_pv: totalRedeemPv,
+  };
 
-  renderDiagCard();
+  renderDiagResult();
 }
 
-function renderDiagCard() {
-  const d = diagBrandData;
-  if (!d) return;
-  const { brandId, brandInfo, catKey, brandActivities, brandRates, medianVals, bestVals, top3Avgs, top3ByMetric, health, weakMetrics, totalExpPv, totalClmPv, totalRdmPv, totalExpUv, totalClmUv, totalRdmUv } = d;
-  const emoji = CATEGORY_EMOJI[catKey] || '';
-  const mk = DIAG_METRICS[diagSelectedMetric];
+// ============================================================
+// 渲染完整诊断结果
+// ============================================================
+function renderDiagResult() {
+  const b = diagCurrentBrand;
+  const cat = b.category;
+  const meds = diagCatMedians[cat] || {};
+  const p25 = diagCatP25[cat] || {};
+  const best = diagCatBest[cat] || {};
 
-  // 短板气泡
-  const weakBubble = weakMetrics.length > 0
-    ? `<div class="diag-bubble diag-bubble-warn">⚠ ${weakMetrics.length} 项指标低于行业中位数，建议重点关注${weakMetrics[0].label}</div>`
-    : `<div class="diag-bubble diag-bubble-ok">✅ 所有指标均高于行业中位数</div>`;
+  // 健康评分（基准=P25，即75th百分位）
+  let totalScore = 0;
+  const metricScores = {};
+  for (const mk of DIAG_METRICS) {
+    const base = p25[mk.key] || 0.01;
+    const score = Math.min(b.metrics[mk.key] / base, 1.0) * 25;
+    metricScores[mk.key] = Math.round(score * 10) / 10;
+    totalScore += score;
+  }
+  totalScore = Math.round(totalScore);
 
-  // 指标对比表行
-  let metricsRows = '';
-  DIAG_METRICS.forEach((m, i) => {
-    const bv = brandRates[m.key];
-    const mv = medianVals[m.key];
-    const best = bestVals[m.key];
-    const isWeak = bv < mv;
-    const isSelected = i === diagSelectedMetric;
-    const statusClass = isWeak ? 'diag-status-bad' : 'diag-status-good';
-    const statusText = isWeak ? `▲ 低于中位 ${Math.round((mv - bv) / mv * 100)}%` : '✓ 高于中位';
-    const rowClass = isSelected ? 'diag-metric-row selected' : 'diag-metric-row';
-    const bgClass = isWeak ? ' diag-row-weak' : '';
+  const scoreColor = totalScore >= 80 ? '#16A34A' : totalScore >= 60 ? '#F59E0B' : '#DC2626';
+  const scoreLabel = totalScore >= 80 ? '优秀' : totalScore >= 60 ? '待优化' : '需关注';
 
-    metricsRows += `<tr class="${rowClass}${bgClass}" onclick="diagSelectMetric(${i})" style="cursor:pointer">
-      <td style="width:28px;text-align:center;color:${DIAG_COLORS.muted}">${i + 1}</td>
-      <td style="font-weight:500">${m.label}</td>
-      <td style="font-weight:700;color:${DIAG_COLORS.brand}">${fmtPct(bv)}</td>
-      <td style="color:${DIAG_COLORS.muted}">${fmtPct(mv)}</td>
-      <td style="color:${DIAG_COLORS.best};font-weight:500">${fmtPct(best)}</td>
-      <td><span class="${statusClass}">${statusText}</span></td>
-    </tr>`;
-  });
+  // 短板检测
+  const weakMetrics = DIAG_METRICS.filter(mk => b.metrics[mk.key] < (meds[mk.key] || 0));
+  const worstMetric = weakMetrics.length > 0
+    ? weakMetrics.reduce((a, c) => (b.metrics[c.key] / (meds[c.key] || 1)) < (b.metrics[a.key] / (meds[a.key] || 1)) ? c : a)
+    : null;
 
-  // C区：行业标杆
-  const selMetric = DIAG_METRICS[diagSelectedMetric];
-  const t3 = top3ByMetric[selMetric.key] || [];
-  let t3List = '';
-  const medals = ['🥇', '🥈', '🥉'];
-  t3.forEach((item, i) => {
-    t3List += `<div class="diag-t3-item">
-      <span class="diag-t3-medal">${medals[i]}</span>
-      <div class="diag-t3-info">
-        <div class="diag-t3-brand">${item.brand_name} — ${item.activity_name}</div>
-      </div>
-      <div class="diag-t3-val">${fmtPct(item.val)}</div>
-    </div>`;
-  });
+  if (worstMetric) diagSelectedMetric = worstMetric.key;
 
-  // D区：活动明细
-  let activityCards = '';
-  brandActivities.forEach(act => {
-    const ecr = act.claim_pv / (act.exposure_pv || 1);
-    const crr = act.redeem_pv / (act.claim_pv || 1);
-    const err = act.redeem_pv / (act.exposure_pv || 1);
-    const srr = brandRates.store_redeem;
-
-    activityCards += `<div class="diag-act-card">
-      <div class="diag-act-header">
-        <strong>${act.activity_name}</strong>
-        <span style="color:${DIAG_COLORS.muted};font-size:12px">曝光 ${fmtNum(act.exposure_pv)} | 领取 ${fmtNum(act.claim_pv)} | 核销 ${fmtNum(act.redeem_pv)}</span>
-      </div>
-      <div class="diag-act-metrics">
-        ${diagActMetricBar('曝光领取率', ecr, medianVals.exposure_claim)}
-        ${diagActMetricBar('领取核销率', crr, medianVals.claim_redeem)}
-        ${diagActMetricBar('曝光核销率', err, medianVals.exposure_redeem)}
-        ${diagActMetricBar('到店核销率', srr, medianVals.store_redeem)}
-      </div>
-      <div class="diag-act-funnel">
-        <span class="daf-step" style="background:${DIAG_COLORS.brand}">曝光 ${fmtNum(act.exposure_pv)}</span>
-        <span class="daf-arrow">→${fmtPct(ecr)}→</span>
-        <span class="daf-step" style="background:${DIAG_COLORS.brand}CC">领取 ${fmtNum(act.claim_pv)}</span>
-        <span class="daf-arrow">→${fmtPct(crr)}→</span>
-        <span class="daf-step" style="background:${DIAG_COLORS.brand}88">核销 ${fmtNum(act.redeem_pv)}</span>
-      </div>
-    </div>`;
-  });
-
-  const container = document.getElementById('diag-card-container');
-  container.innerHTML = `
-    <div class="diag-report">
-      <!-- A区：品牌概览 -->
-      <div class="diag-area-a">
-        <div class="diag-brand-info">
-          <div class="diag-brand-name">${brandInfo?.brand_name || brandId} <span class="diag-cat-tag">${emoji} ${catKey}</span></div>
-          <div class="diag-brand-meta">数据日期：${brandInfo?.report_date || '-'}</div>
-          <div class="diag-brand-stats">
-            <div class="dbs-item"><div class="dbs-num">${brandActivities.length}</div><div class="dbs-label">活动数</div></div>
-            <div class="dbs-item"><div class="dbs-num">${fmtNum(totalExpUv)}</div><div class="dbs-label">曝光</div></div>
-            <div class="dbs-item"><div class="dbs-num">${fmtNum(totalClmUv)}</div><div class="dbs-label">领取</div></div>
-            <div class="dbs-item"><div class="dbs-num">${fmtNum(totalRdmUv)}</div><div class="dbs-label">核销</div></div>
-          </div>
+  const resultDiv = document.getElementById('diag-result');
+  resultDiv.innerHTML = `
+    <!-- 区域 A: 品牌概览 -->
+    <div class="diag-card diag-area-a" style="animation:fadeInUp 0.3s ease">
+      <div class="diag-a-left">
+        <div class="diag-brand-name">${b.brand_name} <span class="diag-cat-tag" style="background:${getCatColor(cat)}20;color:${getCatColor(cat)}">${cat}</span></div>
+        <div class="diag-date">数据日期：${b.brand_daily.report_date}</div>
+        <div class="diag-summary-grid">
+          <div class="diag-summary-item"><div class="ds-label">活动数</div><div class="ds-value">${b.activities.length}</div></div>
+          <div class="diag-summary-item"><div class="ds-label">曝光</div><div class="ds-value">${fmtNum(b.totals.exposure_pv)}</div></div>
+          <div class="diag-summary-item"><div class="ds-label">领取</div><div class="ds-value">${fmtNum(b.totals.claim_pv)}</div></div>
+          <div class="diag-summary-item"><div class="ds-label">核销</div><div class="ds-value">${fmtNum(b.totals.redeem_pv)}</div></div>
         </div>
-        <div class="diag-health-ring">
-          ${healthRingSvg(health.total, 130)}
-          <div style="text-align:center;font-size:11px;color:${DIAG_COLORS.muted};margin-top:4px">综合4项指标相对业态中位数的表现</div>
+        ${weakMetrics.length > 0 ? `<div class="diag-alert" style="background:${scoreColor}10;border-left:3px solid ${scoreColor};color:${scoreColor}">
+          ⚠️ ${weakMetrics.length} 项指标低于行业中位数，建议重点关注${worstMetric.label}
+        </div>` : '<div class="diag-alert" style="background:#16A34A10;border-left:3px solid #16A34A;color:#16A34A">✅ 所有指标均优于行业中位数</div>'}
+      </div>
+      <div class="diag-a-right">
+        <div class="diag-score-ring" id="diag-score-ring"></div>
+      </div>
+    </div>
+
+    <!-- 区域 B: 雷达图 + 指标表 -->
+    <div class="diag-card diag-area-b" style="animation:fadeInUp 0.5s ease">
+      <h3 class="diag-section-title">📊 四维转化诊断 <span style="font-size:12px;color:#8C8C8C;font-weight:400">品牌表现 vs 业态中位数 vs 业态最佳</span></h3>
+      <div class="diag-b-content">
+        <div class="diag-radar-wrap" id="diag-radar-wrap"></div>
+        <div class="diag-metric-table">
+          ${DIAG_METRICS.map((mk, i) => {
+            const val = b.metrics[mk.key];
+            const med = meds[mk.key] || 0;
+            const bestVal = best[mk.key] || 0;
+            const isBetter = val >= med;
+            const isSelected = mk.key === diagSelectedMetric;
+            const diffPct = med > 0 ? Math.round(Math.abs(val - med) / med * 100) : 0;
+            return `<div class="diag-metric-row ${isSelected ? 'selected' : ''} ${!isBetter ? 'weak' : ''}"
+              onclick="switchDiagMetric('${mk.key}')">
+              <div class="dmr-num">${i + 1}</div>
+              <div class="dmr-label">${mk.label}</div>
+              <div class="dmr-brand">${fmtPctDiag(val)}</div>
+              <div class="dmr-med">${fmtPctDiag(med)}</div>
+              <div class="dmr-best" style="color:#D97706">${fmtPctDiag(bestVal)}</div>
+              <div class="dmr-status ${isBetter ? 'good' : 'bad'}">
+                ${isBetter ? '✅ 高于中位' : `⚠️ <span style="color:#DC2626">低于中位 ${diffPct}%</span>`}
+              </div>
+              <div class="dmr-bar">
+                <div class="dmr-bar-fill" style="width:${Math.min(val / (bestVal || 0.01) * 100, 100)}%;background:${isBetter ? '#2563EB' : '#DC2626'}"></div>
+                <span class="dmr-bar-max">${fmtPctDiag(bestVal)}</span>
+              </div>
+            </div>`;
+          }).join('')}
+          <div style="font-size:11px;color:#8C8C8C;margin-top:8px;text-align:right">点击指标行查看行业标杆详情 ↓</div>
         </div>
       </div>
+    </div>
 
-      ${weakBubble}
+    <!-- 区域 C: 行业标杆参考 -->
+    <div class="diag-card diag-area-c" style="animation:fadeInUp 0.7s ease" id="diag-area-c">
+      <div id="diag-benchmark-content"></div>
+    </div>
 
-      <!-- B区：雷达图 + 指标表 -->
-      <div class="diag-area-b">
-        <div class="diag-radar-wrap">
-          ${radarChartSvg(brandRates, medianVals, bestVals, 240)}
-        </div>
-        <div class="diag-metrics-table-wrap">
-          <table class="diag-metrics-table">
-            <thead><tr>
-              <th></th><th>指标</th><th style="color:${DIAG_COLORS.brand}">品牌</th><th>中位数</th><th style="color:${DIAG_COLORS.best}">最佳</th><th>状态</th>
-            </tr></thead>
-            <tbody>${metricsRows}</tbody>
-          </table>
-          <div style="font-size:11px;color:${DIAG_COLORS.muted};margin-top:8px;text-align:right">点击指标行查看行业标杆详情 ↓</div>
-        </div>
+    <!-- 区域 D: 活动明细 -->
+    <div class="diag-card diag-area-d" style="animation:fadeInUp 0.9s ease">
+      <div class="diag-d-header" onclick="toggleDiagDetail()">
+        <h3 class="diag-section-title" style="margin:0">📋 活动明细 (${b.activities.length}个活动)</h3>
+        <span id="diag-d-toggle" style="font-size:14px;color:#8C8C8C;cursor:pointer">展开 ∨</span>
       </div>
-
-      <!-- C区：行业标杆参考 -->
-      <div class="diag-area-c">
-        <h3 class="diag-section-title">🏆 行业标杆参考（${catKey} · ${selMetric.label} Top3）</h3>
-        ${positionScaleBar(brandRates[selMetric.key], medianVals[selMetric.key], t3, selMetric.label)}
-        <div class="diag-t3-list">${t3List}</div>
-      </div>
-
-      <!-- D区：活动明细 -->
-      <div class="diag-area-d">
-        <h3 class="diag-section-title" onclick="toggleDiagActivities()" style="cursor:pointer">
-          📋 活动明细 <span id="diag-act-toggle" style="font-size:12px;color:${DIAG_COLORS.muted}">收起 ▲</span>
-        </h3>
-        <div id="diag-act-list" class="diag-act-list">${activityCards}</div>
-      </div>
+      <div id="diag-d-body" style="display:none;margin-top:16px">${renderDiagActivities()}</div>
     </div>
   `;
+
+  // 渲染健康评分环形图
+  renderScoreRing(totalScore, scoreColor, scoreLabel);
+
+  // 渲染雷达图
+  renderDiagRadar();
+
+  // 渲染区域C
+  renderBenchmark();
 }
 
-function diagActMetricBar(label, val, med) {
-  const maxW = Math.max(val, med, 0.01);
-  const brandW = Math.min(val / maxW * 100, 100);
-  const medPos = Math.min(med / maxW * 100, 100);
-  const isWeak = val < med;
-  return `<div class="diag-act-mb">
-    <div class="damb-label">${label}</div>
-    <div class="damb-bar-wrap">
-      <div class="damb-bar" style="width:${brandW}%;background:${isWeak ? DIAG_COLORS.bad : DIAG_COLORS.brand}"></div>
-      <div class="damb-med" style="left:${medPos}%" title="中位 ${fmtPct(med)}"></div>
-    </div>
-    <div class="damb-val">${fmtPct(val)} <span style="color:${DIAG_COLORS.muted};font-size:10px">(中位 ${fmtPct(med)})</span></div>
-  </div>`;
-}
+// ============================================================
+// 健康评分环形图（Canvas）
+// ============================================================
+function renderScoreRing(score, color, label) {
+  const wrap = document.getElementById('diag-score-ring');
+  wrap.innerHTML = `<canvas id="score-canvas" width="160" height="160"></canvas>
+    <div class="score-text"><span class="score-num" style="color:${color}">${score}</span><span class="score-100">/100</span></div>
+    <div class="score-label" style="color:${color}">${label}</div>
+    <div class="score-desc">综合4项指标相对业态的表现</div>`;
 
-function diagSelectMetric(idx) {
-  diagSelectedMetric = idx;
-  renderDiagCard();
-}
+  const canvas = document.getElementById('score-canvas');
+  const ctx = canvas.getContext('2d');
+  const cx = 80, cy = 80, r = 65, lw = 10;
 
-function toggleDiagActivities() {
-  const list = document.getElementById('diag-act-list');
-  const toggle = document.getElementById('diag-act-toggle');
-  if (list.style.display === 'none') {
-    list.style.display = '';
-    toggle.textContent = '收起 ▲';
-  } else {
-    list.style.display = 'none';
-    toggle.textContent = '展开 ▼';
+  // 背景环
+  ctx.beginPath();
+  ctx.arc(cx, cy, r, 0, Math.PI * 2);
+  ctx.strokeStyle = '#F0F0F0';
+  ctx.lineWidth = lw;
+  ctx.stroke();
+
+  // 进度环（动画）
+  let progress = 0;
+  const target = score / 100;
+  function animate() {
+    progress += 0.02;
+    if (progress > target) progress = target;
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * progress);
+    ctx.strokeStyle = color;
+    ctx.lineWidth = lw;
+    ctx.lineCap = 'round';
+    ctx.stroke();
+    if (progress < target) requestAnimationFrame(animate);
   }
+  animate();
+}
+
+// ============================================================
+// 雷达图（ECharts）
+// ============================================================
+function renderDiagRadar() {
+  const wrap = document.getElementById('diag-radar-wrap');
+  const b = diagCurrentBrand;
+  const cat = b.category;
+  const meds = diagCatMedians[cat] || {};
+  const best = diagCatBest[cat] || {};
+
+  const chart = echarts.init(wrap);
+  const maxVals = DIAG_METRICS.map(mk => Math.max(b.metrics[mk.key], meds[mk.key] || 0, best[mk.key] || 0) * 1.2);
+
+  chart.setOption({
+    radar: {
+      indicator: DIAG_METRICS.map((mk, i) => ({
+        name: mk.label, max: maxVals[i] || 0.1
+      })),
+      shape: 'polygon',
+      axisName: { color: '#4B5563', fontSize: 11 },
+      splitArea: { areaStyle: { color: ['rgba(37,99,235,0.02)', 'rgba(37,99,235,0.04)'] } },
+      splitLine: { lineStyle: { color: '#E5E7EB' } },
+    },
+    series: [{
+      type: 'radar',
+      data: [
+        {
+          value: DIAG_METRICS.map(mk => b.metrics[mk.key]),
+          name: '品牌',
+          areaStyle: { color: 'rgba(37,99,235,0.2)' },
+          lineStyle: { color: '#2563EB', width: 2 },
+          itemStyle: { color: '#2563EB' },
+        },
+        {
+          value: DIAG_METRICS.map(mk => meds[mk.key] || 0),
+          name: '中位数',
+          lineStyle: { color: '#9CA3AF', type: 'dashed', width: 1.5 },
+          itemStyle: { color: '#9CA3AF' },
+          areaStyle: { color: 'transparent' },
+        },
+        {
+          value: DIAG_METRICS.map(mk => best[mk.key] || 0),
+          name: '最佳',
+          lineStyle: { color: '#D97706', type: 'dotted', width: 2 },
+          itemStyle: { color: '#D97706' },
+          areaStyle: { color: 'transparent' },
+        },
+      ],
+    }],
+    legend: {
+      bottom: 0,
+      data: [
+        { name: '品牌', icon: 'rect' },
+        { name: '中位数', icon: 'rect' },
+        { name: '最佳', icon: 'rect' },
+      ],
+      textStyle: { fontSize: 11, color: '#6B7280' },
+    },
+  });
+}
+
+// ============================================================
+// 区域 C: 行业标杆
+// ============================================================
+function renderBenchmark() {
+  const b = diagCurrentBrand;
+  const cat = b.category;
+  const mk = DIAG_METRICS.find(m => m.key === diagSelectedMetric);
+  const top3 = (diagCatTop3[cat] || {})[mk.key] || [];
+  const med = (diagCatMedians[cat] || {})[mk.key] || 0;
+  const brandVal = b.metrics[mk.key];
+  const top1Val = top3.length > 0 ? top3[0][mk.key] : 0;
+
+  // 刻度尺参数
+  const scaleMax = Math.max(top1Val * 1.1, brandVal * 1.2, 0.01);
+  const brandPct = (brandVal / scaleMax) * 100;
+  const medPct = (med / scaleMax) * 100;
+
+  const isWeak = brandVal < med;
+  const diffMed = Math.abs(brandVal - med);
+  const diffTop1 = Math.abs(top1Val - brandVal);
+
+  let html = `
+    <div class="diag-c-header">
+      <h3 class="diag-section-title" style="margin:0">🏆 行业标杆参考（${cat} · ${mk.label} Top3）</h3>
+      <div class="diag-c-tabs">
+        ${DIAG_METRICS.map(m => `<span class="dc-tab ${m.key === diagSelectedMetric ? 'active' : ''}"
+          onclick="switchDiagMetric('${m.key}')">${m.label}</span>`).join('')}
+      </div>
+    </div>
+
+    <!-- 位置刻度尺 -->
+    <div class="diag-scale">
+      <div class="scale-bar">
+        <div class="scale-fill" style="width:${brandPct}%;background:${isWeak ? '#DC2626' : '#2563EB'}"></div>
+        <div class="scale-marker scale-med" style="left:${medPct}%"><div class="sm-line"></div><div class="sm-label">中位 ${fmtPctDiag(med)}</div></div>
+        <div class="scale-marker scale-brand" style="left:${Math.min(brandPct, 95)}%"><div class="sm-dot" style="background:${isWeak ? '#DC2626' : '#2563EB'}"></div><div class="sm-label" style="color:${isWeak ? '#DC2626' : '#2563EB'}">▼ ${b.brand_name} ${fmtPctDiag(brandVal)}</div></div>
+        ${top3.map((t, i) => {
+          const pos = (t[mk.key] / scaleMax) * 100;
+          const medals = ['🥇', '🥈', '🥉'];
+          return `<div class="scale-marker scale-top" style="left:${Math.min(pos, 98)}%"><div class="sm-label" style="font-size:10px">${medals[i]}</div></div>`;
+        }).join('')}
+      </div>
+      <div class="scale-diff" style="color:${isWeak ? '#DC2626' : '#16A34A'}">
+        距中位${isWeak ? '还差' : '超出'} <b>${(diffMed * 100).toFixed(1)}</b> 个百分点
+        <span style="color:#D97706;margin-left:12px">距Top1还差 <b>${(diffTop1 * 100).toFixed(1)}</b> 个百分点</span>
+      </div>
+    </div>
+
+    <!-- Top3 列表 -->
+    <div class="diag-top3-list">
+      ${top3.map((t, i) => {
+        const medals = ['🥇', '🥈', '🥉'];
+        const medalColors = ['#D97706', '#9CA3AF', '#B45309'];
+        const duration = (t.start_date && t.end_date) ? Math.max(1, Math.round((parseInt(t.end_date) - parseInt(t.start_date)))) : '-';
+        return `<div class="diag-top3-card">
+          <div class="dt3-header">
+            <span class="dt3-medal" style="color:${medalColors[i]}">${medals[i]}</span>
+            <div class="dt3-info">
+              <div class="dt3-brand">${t.brand_name} — ${t.activity_name}</div>
+              <div class="dt3-meta">活动时长: ${duration}天</div>
+            </div>
+            <div class="dt3-value">${fmtPctDiag(t[mk.key])}</div>
+          </div>
+        </div>`;
+      }).join('')}
+    </div>
+  `;
+
+  document.getElementById('diag-benchmark-content').innerHTML = html;
+}
+
+function switchDiagMetric(key) {
+  diagSelectedMetric = key;
+  // 重新渲染区域 B 指标表高亮 + 区域 C
+  renderDiagResult();
+  // 滚动到区域 C
+  setTimeout(() => {
+    document.getElementById('diag-area-c').scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }, 100);
+}
+
+// ============================================================
+// 区域 D: 活动明细
+// ============================================================
+function renderDiagActivities() {
+  const b = diagCurrentBrand;
+  const cat = b.category;
+  const meds = diagCatMedians[cat] || {};
+  const activities = [...b.activities].sort((a, c) => (c.exposure_pv || 0) - (a.exposure_pv || 0));
+  const storeRate = b.metrics.store_redeem;
+
+  return activities.map(a => {
+    const ecr = a.claim_pv / a.exposure_pv || 0;
+    const crr = a.redeem_pv / a.claim_pv || 0;
+    const err = a.redeem_pv / a.exposure_pv || 0;
+
+    function progressBar(label, val, med) {
+      const pct = Math.min((val / (med * 2 || 0.01)) * 100, 100);
+      const color = val >= med ? '#2563EB' : '#DC2626';
+      return `<div class="da-metric">
+        <div class="da-m-header"><span class="da-m-label">${label}</span><span class="da-m-val" style="color:${color}">${fmtPctDiag(val)}</span></div>
+        <div class="da-m-bar"><div class="da-m-fill" style="width:${pct}%;background:${color}"></div>
+          <div class="da-m-med-line" style="left:${Math.min((med / (med * 2 || 0.01)) * 100, 100)}%"></div>
+        </div>
+        <div class="da-m-ref">中位 ${fmtPctDiag(med)}</div>
+      </div>`;
+    }
+
+    return `<div class="diag-activity-card">
+      <div class="dac-header">
+        <div class="dac-name">${a.activity_name}</div>
+        <div class="dac-funnel">曝光 ${fmtNum(a.exposure_pv)} → <span style="color:#2563EB">${fmtPctDiag(ecr)}</span> → 领取 ${fmtNum(a.claim_pv)} → <span style="color:#2563EB">${fmtPctDiag(crr)}</span> → 核销 ${fmtNum(a.redeem_pv)}</div>
+      </div>
+      <div class="dac-grid">
+        ${progressBar('曝光领取率', ecr, meds.exposure_claim || 0)}
+        ${progressBar('领取核销率', crr, meds.claim_redeem || 0)}
+        ${progressBar('曝光核销率', err, meds.exposure_redeem || 0)}
+        ${progressBar('到店核销率', storeRate, meds.store_redeem || 0)}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function toggleDiagDetail() {
+  const body = document.getElementById('diag-d-body');
+  const toggle = document.getElementById('diag-d-toggle');
+  if (body.style.display === 'none') {
+    body.style.display = 'block';
+    toggle.textContent = '收起 ∧';
+  } else {
+    body.style.display = 'none';
+    toggle.textContent = '展开 ∨';
+  }
+}
+
+// ============================================================
+// 工具函数
+// ============================================================
+function fmtPctDiag(v) {
+  if (isNaN(v) || v === null || v === undefined) return '-';
+  return (v * 100).toFixed(1) + '%';
+}
+
+function fmtNum(n) {
+  if (n === null || n === undefined || isNaN(n)) return '-';
+  return Number(n).toLocaleString('en-US');
+}
+
+function getCatColor(cat) {
+  const map = { '茶饮咖啡': '#2563EB', '中式快餐': '#F59E0B', '西式快餐': '#DC2626', '正餐': '#1E40AF', '小吃': '#D97706', '甜品烘焙': '#EC4899' };
+  return map[cat] || '#6B7280';
 }

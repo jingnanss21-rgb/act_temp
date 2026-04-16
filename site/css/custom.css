@@ -772,3 +772,120 @@ body {
 /* 响应式：小屏两列 */
 @media (max-width: 1024px) { .bp-card-grid { grid-template-columns: repeat(2, 1fr); } }
 @media (max-width: 640px) { .bp-card-grid { grid-template-columns: 1fr; } .modal-body { flex-direction: column; } .modal-left { border-right: none; padding-right: 0; border-bottom: 1px solid var(--border); padding-bottom: 20px; } .modal-right { padding-left: 0; padding-top: 20px; } }
+
+/* ============================================================
+   品牌诊断 Tab 样式
+   ============================================================ */
+@keyframes fadeInUp { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }
+
+.diag-page { padding: 16px 24px; }
+.diag-search-area { margin-bottom: 20px; }
+.diag-search-box { display: flex; gap: 12px; align-items: center; position: relative; max-width: 600px; }
+.diag-input { flex: 1; padding: 10px 16px; border: 2px solid #E2E8F0; border-radius: 8px; font-size: 14px; outline: none; transition: border-color 0.2s; }
+.diag-input:focus { border-color: #2563EB; }
+.diag-dropdown { position: absolute; top: 100%; left: 0; right: 80px; background: #fff; border: 1px solid #E2E8F0; border-radius: 8px; max-height: 300px; overflow-y: auto; z-index: 100; display: none; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
+.dd-item { padding: 8px 14px; cursor: pointer; font-size: 13px; border-bottom: 1px solid #F1F5F9; }
+.dd-item:hover { background: #EFF6FF; }
+
+.diag-card { background: #fff; border-radius: 12px; padding: 24px; margin-bottom: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); transition: box-shadow 0.2s; }
+.diag-card:hover { box-shadow: 0 4px 12px rgba(0,0,0,0.12); }
+
+/* 区域 A */
+.diag-area-a { display: flex; gap: 24px; align-items: flex-start; }
+.diag-a-left { flex: 1; }
+.diag-a-right { width: 180px; text-align: center; flex-shrink: 0; }
+.diag-brand-name { font-size: 22px; font-weight: 700; color: #1E293B; }
+.diag-cat-tag { font-size: 12px; padding: 2px 10px; border-radius: 12px; font-weight: 500; margin-left: 8px; display: inline-block; vertical-align: middle; }
+.diag-date { font-size: 13px; color: #8C8C8C; margin-top: 4px; }
+.diag-summary-grid { display: flex; gap: 24px; margin-top: 16px; }
+.diag-summary-item { }
+.ds-label { font-size: 12px; color: #8C8C8C; }
+.ds-value { font-size: 20px; font-weight: 700; color: #1E293B; font-variant-numeric: tabular-nums; }
+.diag-alert { margin-top: 16px; padding: 10px 14px; border-radius: 8px; font-size: 13px; font-weight: 500; }
+
+.diag-score-ring { position: relative; width: 160px; height: 160px; margin: 0 auto; }
+.score-text { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -60%); text-align: center; }
+.score-num { font-size: 40px; font-weight: 800; font-variant-numeric: tabular-nums; }
+.score-100 { font-size: 16px; color: #8C8C8C; }
+.score-label { text-align: center; font-size: 14px; font-weight: 600; margin-top: -8px; }
+.score-desc { text-align: center; font-size: 11px; color: #8C8C8C; margin-top: 4px; }
+
+/* 区域 B */
+.diag-section-title { font-size: 16px; font-weight: 700; color: #1E293B; margin-bottom: 16px; }
+.diag-b-content { display: flex; gap: 24px; }
+.diag-radar-wrap { width: 300px; height: 280px; flex-shrink: 0; }
+.diag-metric-table { flex: 1; min-width: 0; }
+
+.diag-metric-row { display: grid; grid-template-columns: 24px 100px 60px 60px 60px 1fr 120px; align-items: center; gap: 8px; padding: 10px 12px; border-radius: 8px; cursor: pointer; transition: all 0.2s; border-left: 3px solid transparent; }
+.diag-metric-row:hover { background: #F8FAFC; }
+.diag-metric-row.selected { background: #EFF6FF; border-left-color: #2563EB; }
+.diag-metric-row.weak { background: #FFF5F5; }
+.diag-metric-row.weak.selected { background: #FEE2E2; border-left-color: #DC2626; }
+.dmr-num { font-size: 12px; color: #8C8C8C; font-weight: 600; }
+.dmr-label { font-size: 13px; font-weight: 600; color: #1E293B; }
+.dmr-brand { font-size: 14px; font-weight: 700; color: #2563EB; font-variant-numeric: tabular-nums; }
+.dmr-med { font-size: 12px; color: #8C8C8C; }
+.dmr-best { font-size: 12px; font-weight: 600; }
+.dmr-status { font-size: 11px; white-space: nowrap; }
+.dmr-status.good { color: #16A34A; }
+.dmr-status.bad { color: #DC2626; }
+.dmr-bar { position: relative; height: 6px; background: #F1F5F9; border-radius: 3px; overflow: visible; }
+.dmr-bar-fill { height: 100%; border-radius: 3px; transition: width 0.6s ease; }
+.dmr-bar-max { position: absolute; right: 0; top: -14px; font-size: 9px; color: #D97706; }
+
+/* 区域 C */
+.diag-c-header { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; margin-bottom: 16px; }
+.diag-c-tabs { display: flex; gap: 4px; }
+.dc-tab { padding: 4px 12px; font-size: 12px; border-radius: 6px; cursor: pointer; color: #6B7280; background: #F1F5F9; transition: all 0.2s; }
+.dc-tab.active { background: #2563EB; color: #fff; }
+.dc-tab:hover:not(.active) { background: #E2E8F0; }
+
+.diag-scale { margin-bottom: 20px; }
+.scale-bar { position: relative; height: 8px; background: #F1F5F9; border-radius: 4px; margin: 40px 0 32px; }
+.scale-fill { height: 100%; border-radius: 4px; transition: width 0.5s ease; }
+.scale-marker { position: absolute; top: -28px; transform: translateX(-50%); }
+.scale-med .sm-line { width: 1px; height: 36px; background: #9CA3AF; margin: 0 auto; }
+.scale-med .sm-label { font-size: 10px; color: #8C8C8C; white-space: nowrap; text-align: center; }
+.scale-brand .sm-dot { width: 10px; height: 10px; border-radius: 50%; margin: 0 auto 2px; }
+.scale-brand .sm-label { font-size: 11px; font-weight: 600; white-space: nowrap; }
+.scale-top .sm-label { white-space: nowrap; }
+.scale-diff { font-size: 13px; margin-top: 4px; }
+
+.diag-top3-list { display: flex; flex-direction: column; gap: 8px; }
+.diag-top3-card { padding: 12px 16px; border: 1px solid #E2E8F0; border-radius: 10px; transition: all 0.2s; }
+.diag-top3-card:hover { border-color: #2563EB; box-shadow: 0 2px 8px rgba(37,99,235,0.1); transform: translateY(-1px); }
+.dt3-header { display: flex; align-items: center; gap: 12px; }
+.dt3-medal { font-size: 24px; flex-shrink: 0; }
+.dt3-info { flex: 1; min-width: 0; }
+.dt3-brand { font-size: 14px; font-weight: 600; color: #1E293B; }
+.dt3-meta { font-size: 11px; color: #8C8C8C; margin-top: 2px; }
+.dt3-value { font-size: 20px; font-weight: 800; color: #2563EB; flex-shrink: 0; font-variant-numeric: tabular-nums; }
+
+/* 区域 D */
+.diag-d-header { display: flex; justify-content: space-between; align-items: center; cursor: pointer; }
+.diag-activity-card { padding: 16px; border: 1px solid #E2E8F0; border-radius: 10px; margin-bottom: 12px; }
+.dac-header { margin-bottom: 12px; }
+.dac-name { font-size: 14px; font-weight: 600; color: #1E293B; }
+.dac-funnel { font-size: 12px; color: #6B7280; margin-top: 4px; }
+.dac-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.da-metric { }
+.da-m-header { display: flex; justify-content: space-between; align-items: center; }
+.da-m-label { font-size: 12px; color: #6B7280; }
+.da-m-val { font-size: 13px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.da-m-bar { position: relative; height: 6px; background: #F1F5F9; border-radius: 3px; margin-top: 4px; }
+.da-m-fill { height: 100%; border-radius: 3px; transition: width 0.5s ease; }
+.da-m-med-line { position: absolute; top: -2px; width: 1px; height: 10px; background: #9CA3AF; }
+.da-m-ref { font-size: 10px; color: #8C8C8C; margin-top: 2px; }
+
+/* 响应式 */
+@media (max-width: 1024px) {
+  .diag-area-a { flex-direction: column; }
+  .diag-a-right { width: 100%; }
+  .diag-b-content { flex-direction: column; }
+  .diag-radar-wrap { width: 100%; }
+  .diag-metric-row { grid-template-columns: 20px 80px 50px 50px 50px 1fr 80px; font-size: 11px; }
+}
+@media (max-width: 640px) {
+  .diag-page { padding: 8px 12px; }
+  .dac-grid { grid-template-columns: 1fr; }
+}

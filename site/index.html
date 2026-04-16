@@ -6,6 +6,7 @@
   <title>活动运营数据看板</title>
   <link rel="stylesheet" href="css/custom.css">
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 </head>
 <body>
@@ -23,15 +24,16 @@
     <div class="tab-item active" data-tab="best-practice" onclick="switchTab('best-practice')">
       🏆 行业最佳实践
     </div>
+    <div class="tab-item" data-tab="brand-diagnosis" onclick="switchTab('brand-diagnosis')">
+      🔍 品牌诊断
+    </div>
     <div class="tab-item" data-tab="activity-detail" onclick="switchTab('activity-detail')">
       📋 品牌活动明细
     </div>
   </div>
 
-  <!-- Tab 1: 分类目最佳实践 + 品牌诊断 -->
+  <!-- Tab 1: 行业最佳实践 -->
   <div id="best-practice-section" class="tab-content">
-
-    <!-- 分类目 Top3 最佳实践 -->
     <h2 class="section-title" style="padding:20px 32px 0">🏆 行业最佳实践</h2>
     <p style="padding:0 32px;margin:4px 0 0;font-size:13px;color:var(--text-muted)">
       基于优惠券活动数据，展示各业态 Top3 标杆活动的核心转化指标
@@ -39,20 +41,12 @@
     <div id="best-practice-container">
       <div class="loading"><div class="spinner"></div><p>加载数据中...</p></div>
     </div>
+  </div>
 
-    <hr style="border:none;border-top:1px solid #E2E8F0;margin:8px 32px 0">
-
-    <!-- 品牌诊断卡片 -->
-    <div class="diag-section">
-      <h2 class="section-title" style="padding:0">🔍 品牌诊断卡片</h2>
-      <div class="diag-controls">
-        <div class="diag-search-wrap">
-          <input type="text" class="diag-search-input" id="brand-diag-input" placeholder="输入品牌ID或品牌名称搜索...">
-          <div class="diag-search-dropdown" id="brand-diag-dropdown"></div>
-        </div>
-        <button class="btn-primary" onclick="generateDiagCard()">生成诊断卡片</button>
-      </div>
-      <div id="diag-card-container"></div>
+  <!-- Tab 2: 品牌诊断 -->
+  <div id="brand-diagnosis-section" class="tab-content" style="display:none;">
+    <div id="diagnosis-container">
+      <div class="loading"><div class="spinner"></div><p>加载数据中...</p></div>
     </div>
   </div>
 
@@ -140,15 +134,22 @@
   <script src="js/brand-diagnosis.js"></script>
   <script src="js/activity-detail.js"></script>
   <script>
+    let diagInitialized = false;
+
     function switchTab(tabName) {
       document.querySelectorAll('.tab-item').forEach(t => {
         t.classList.toggle('active', t.dataset.tab === tabName);
       });
       document.getElementById('best-practice-section').style.display = tabName === 'best-practice' ? '' : 'none';
+      document.getElementById('brand-diagnosis-section').style.display = tabName === 'brand-diagnosis' ? '' : 'none';
       document.getElementById('detail-section').style.display = tabName === 'activity-detail' ? '' : 'none';
 
       if (tabName === 'activity-detail' && detailData.length === 0) {
         loadActivityDetail();
+      }
+      if (tabName === 'brand-diagnosis' && !diagInitialized) {
+        diagInitialized = true;
+        initDiagnosis();
       }
     }
 
