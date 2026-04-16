@@ -1,5 +1,7 @@
 /**
- * activity-detail.js - 品牌活动明细模块
+ * activity-detail.js - 品牌活动明细模块（Tab2）
+ * 关联对接助理、服务商、负责人
+ * 多选筛选 + 导出表格 + 只保留跟进表(商户对接)里有的商户
  */
 
 let detailData = [];
@@ -8,8 +10,18 @@ let currentPage = 1;
 const PAGE_SIZE = 50;
 let allCategories = [];
 
+// 关联数据
+let merchantMap = {};     // brand_id → { contact_assistant, operating_sp }
+let spOwnerMap = {};      // sp_name → owner (负责人)
+let kaOwnerMap = {};      // brand_id → owner (KA负责人)
+let trackedBrandIds = new Set(); // 跟进表里有的品牌id
+
+// 多选筛选状态
+let filterAssistants = new Set();
+let filterSPs = new Set();
+let filterOwners = new Set();
+
 async function loadActivityDetail() {
-  const tableBody = document.getElementById('detail-table-body');
   const wrap = document.getElementById('detail-section');
   wrap.querySelector('.loading')?.remove();
 
@@ -19,38 +31,65 @@ async function loadActivityDetail() {
   wrap.insertBefore(loadingEl, wrap.firstChild);
 
   try {
-    // 先取活动数据
-    let allActivities = [];
-    let offset = 0;
-    const limit = 1000;
-    while (true) {
-      const { data, error } = await supabaseClient
-        .from('tem_activities')
-        .select('*')
-        .range(offset, offset + limit - 1);
-      if (error) throw error;
-      allActivities = allActivities.concat(data || []);
-      if (!data || data.length < limit) break;
-      offset += limit;
+    // 并行加载所有数据
+    const [actResult, brandResult, merchantResult, spResult, kaResult] = await Promise.all([
+      fetchAll('tem_activities', '*'),
+      supabaseClient.from('tem_brand_daily')
+        .select('brand_id, brand_name, category_l4, store_count, w7_avg_txn_count, w7_mini_program_ratio, w7_store_redeem_rate_uv, report_date')
+        .order('report_date', { ascending: false }).limit(5000),
+      supabaseClient.from('tem_merchant_contacts')
+        .select('brand_id, brand_name, operating_sp, contact_assistant, brand_status').limit(5000),
+      supabaseClient.from('tem_sp_assignments')
+        .select('sp_name, owner').limit(500),
+      supabaseClient.from('tem_ka_assignments')
+        .select('brand_id, owner').limit(500),
+    ]);
+
+    const allActivities = actResult;
+    const brandRows = brandResult.data || [];
+    const merchantRows = merchantResult.data || [];
+    const spRows = spResult.data || [];
+    const kaRows = kaResult.data || [];
+
+    // 构建 merchantMap + trackedBrandIds
+    merchantMap = {};
+    trackedBrandIds = new Set();
+    for (const m of merchantRows) {
+      if (!m.brand_id) continue;
+      const bid = String(m.brand_id);
+      trackedBrandIds.add(bid);
+      merchantMap[bid] = {
+        contact_assistant: m.contact_assistant || '',
+        operating_sp: m.operating_sp || '',
+      };
     }
 
-    // 取品牌日报（最新日期的）
-    const { data: brandRows, error: bErr } = await supabaseClient
-      .from('tem_brand_daily')
-      .select('brand_id, brand_name, category_l4, store_count, w7_avg_txn_count, w7_mini_program_ratio, w7_store_redeem_rate_uv, report_date')
-      .order('report_date', { ascending: false })
-      .limit(5000);
-    if (bErr) throw bErr;
+    // 构建 spOwnerMap
+    spOwnerMap = {};
+    for (const s of spRows) {
+      if (s.sp_name) spOwnerMap[s.sp_name] = s.owner || '';
+    }
 
-    // 按品牌取最新
+    // 构建 kaOwnerMap
+    kaOwnerMap = {};
+    for (const k of kaRows) {
+      if (k.brand_id) kaOwnerMap[String(k.brand_id)] = k.owner || '';
+    }
+
+    // 品牌日报按品牌取最新
     const brandMap = {};
     for (const b of brandRows) {
       if (!brandMap[b.brand_id]) brandMap[b.brand_id] = b;
     }
 
-    // 合并数据
-    detailData = allActivities.map(act => {
-      const brand = brandMap[act.brand_id] || {};
+    // 合并数据 — 只保留跟进表里有的商户
+    detailData = [];
+    for (const act of allActivities) {
+      const bid = String(act.brand_id);
+      if (!trackedBrandIds.has(bid)) continue; // 过滤掉不在跟进表的
+
+      const brand = brandMap[bid] || {};
+      const merchant = merchantMap[bid] || {};
       const eUv = act.exposure_uv || 0;
       const cUv = act.claim_uv || 0;
       const rUv = act.redeem_uv || 0;
@@ -58,9 +97,15 @@ async function loadActivityDetail() {
       const cPv = act.claim_pv || 0;
       const rPv = act.redeem_pv || 0;
 
-      return {
+      // 负责人逻辑：先查 KA分工，再查 品牌→经营服务商→服务商分工→负责人
+      let owner = kaOwnerMap[bid] || '';
+      if (!owner && merchant.operating_sp) {
+        owner = spOwnerMap[merchant.operating_sp] || '';
+      }
+
+      detailData.push({
         category_l4: brand.category_l4 || '-',
-        brand_id: act.brand_id,
+        brand_id: bid,
         brand_name: act.brand_name || brand.brand_name || '-',
         store_count: brand.store_count || '-',
         w7_avg_txn_count: brand.w7_avg_txn_count || '-',
@@ -80,12 +125,15 @@ async function loadActivityDetail() {
         pv_claim_redeem: cPv > 0 ? rPv / cPv : 0,
         pv_exposure_redeem: ePv > 0 ? rPv / ePv : 0,
         w7_store_redeem_rate_uv: brand.w7_store_redeem_rate_uv || '-',
-      };
-    });
+        contact_assistant: merchant.contact_assistant || '-',
+        operating_sp: merchant.operating_sp || '-',
+        owner: owner || '-',
+      });
+    }
 
-    // 收集类目
+    // 收集筛选选项
     allCategories = [...new Set(detailData.map(d => d.category_l4).filter(c => c && c !== '-'))].sort();
-    populateCategoryFilter();
+    populateFilters();
 
     filteredData = [...detailData];
     currentPage = 1;
@@ -99,13 +147,98 @@ async function loadActivityDetail() {
   loadingEl.remove();
 }
 
-function populateCategoryFilter() {
-  const sel = document.getElementById('category-filter');
-  sel.innerHTML = '<option value="">全部类目</option>';
+// 分页加载全量数据
+async function fetchAll(table, select) {
+  let all = [];
+  let offset = 0;
+  const limit = 1000;
+  while (true) {
+    const { data, error } = await supabaseClient.from(table).select(select).range(offset, offset + limit - 1);
+    if (error) throw error;
+    all = all.concat(data || []);
+    if (!data || data.length < limit) break;
+    offset += limit;
+  }
+  return all;
+}
+
+function populateFilters() {
+  // 类目
+  const catSel = document.getElementById('category-filter');
+  catSel.innerHTML = '<option value="">全部类目</option>';
   for (const cat of allCategories) {
-    sel.innerHTML += `<option value="${cat}">${cat}</option>`;
+    catSel.innerHTML += `<option value="${cat}">${cat}</option>`;
+  }
+
+  // 多选筛选列表
+  const assistants = [...new Set(detailData.map(d => d.contact_assistant).filter(v => v && v !== '-'))].sort();
+  const sps = [...new Set(detailData.map(d => d.operating_sp).filter(v => v && v !== '-'))].sort();
+  const owners = [...new Set(detailData.map(d => d.owner).filter(v => v && v !== '-'))].sort();
+
+  buildMultiSelect('ms-assistant', '对接助理', assistants, filterAssistants);
+  buildMultiSelect('ms-sp', '服务商', sps, filterSPs);
+  buildMultiSelect('ms-owner', '负责人', owners, filterOwners);
+}
+
+function buildMultiSelect(containerId, label, options, stateSet) {
+  const container = document.getElementById(containerId);
+  if (!container) return;
+
+  container.innerHTML = `
+    <div class="multi-select-btn" onclick="toggleMultiDropdown('${containerId}')">
+      <span>${label} <span class="multi-count-${containerId}"></span></span>
+      <span class="arrow">▾</span>
+    </div>
+    <div class="multi-select-dropdown" id="dd-${containerId}">
+      ${options.map(opt =>
+        `<label class="multi-select-option">
+          <input type="checkbox" value="${opt}" onchange="onMultiSelectChange('${containerId}', this)" ${stateSet.has(opt) ? 'checked' : ''}>
+          ${opt}
+        </label>`
+      ).join('')}
+    </div>`;
+  updateMultiCount(containerId, stateSet);
+}
+
+function toggleMultiDropdown(containerId) {
+  const dd = document.getElementById('dd-' + containerId);
+  const btn = dd?.previousElementSibling;
+  dd?.classList.toggle('show');
+  btn?.classList.toggle('open');
+
+  // 关闭其他
+  document.querySelectorAll('.multi-select-dropdown').forEach(el => {
+    if (el.id !== 'dd-' + containerId) el.classList.remove('show');
+  });
+}
+
+function onMultiSelectChange(containerId, checkbox) {
+  let stateSet;
+  if (containerId === 'ms-assistant') stateSet = filterAssistants;
+  else if (containerId === 'ms-sp') stateSet = filterSPs;
+  else stateSet = filterOwners;
+
+  if (checkbox.checked) stateSet.add(checkbox.value);
+  else stateSet.delete(checkbox.value);
+
+  updateMultiCount(containerId, stateSet);
+  filterDetailData();
+}
+
+function updateMultiCount(containerId, stateSet) {
+  const countEl = document.querySelector(`.multi-count-${containerId}`);
+  if (countEl) {
+    countEl.innerHTML = stateSet.size > 0 ? `<span class="multi-select-count">${stateSet.size}</span>` : '';
   }
 }
+
+// 点击外部关闭多选下拉
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('.multi-select-wrap')) {
+    document.querySelectorAll('.multi-select-dropdown').forEach(el => el.classList.remove('show'));
+    document.querySelectorAll('.multi-select-btn').forEach(el => el.classList.remove('open'));
+  }
+});
 
 function filterDetailData() {
   const cat = document.getElementById('category-filter').value;
@@ -114,6 +247,9 @@ function filterDetailData() {
   filteredData = detailData.filter(row => {
     if (cat && row.category_l4 !== cat) return false;
     if (keyword && !row.brand_name.toLowerCase().includes(keyword) && !row.brand_id.toLowerCase().includes(keyword)) return false;
+    if (filterAssistants.size > 0 && !filterAssistants.has(row.contact_assistant)) return false;
+    if (filterSPs.size > 0 && !filterSPs.has(row.operating_sp)) return false;
+    if (filterOwners.size > 0 && !filterOwners.has(row.owner)) return false;
     return true;
   });
 
@@ -123,8 +259,12 @@ function filterDetailData() {
 
 function fmtNum(n) {
   if (n === null || n === undefined || n === '-') return '-';
-  if (typeof n === 'string') return n;
-  return n.toLocaleString();
+  if (typeof n === 'string') {
+    const f = parseFloat(n);
+    if (isNaN(f)) return n;
+    return f.toLocaleString(undefined, { maximumFractionDigits: 1 });
+  }
+  return n.toLocaleString(undefined, { maximumFractionDigits: 1 });
 }
 
 function fmtRate(r) {
@@ -132,19 +272,16 @@ function fmtRate(r) {
   if (typeof r === 'string') {
     const f = parseFloat(r);
     if (isNaN(f)) return r;
-    // 如果已经是百分比字符串（如 "12.34%"），直接返回
     if (r.includes('%')) return r;
-    // 如果是 0~1 的小数
-    if (f <= 1) return (f * 100).toFixed(2) + '%';
-    return f.toFixed(2) + '%';
+    if (f <= 1) return (f * 100).toFixed(1) + '%';
+    return f.toFixed(1) + '%';
   }
-  return (r * 100).toFixed(2) + '%';
+  return (r * 100).toFixed(1) + '%';
 }
 
 function rateClass(r) {
   if (typeof r === 'string') r = parseFloat(r);
   if (isNaN(r) || r === null || r === undefined) return '';
-  // 如果是 0~1 的小数
   const pct = r <= 1 ? r * 100 : r;
   if (pct >= 10) return 'rate-high';
   if (pct >= 3) return 'rate-mid';
@@ -166,9 +303,12 @@ function renderDetailTable() {
       <td>${row.category_l4}</td>
       <td>${row.brand_id}</td>
       <td style="font-weight:500">${row.brand_name}</td>
-      <td>${row.store_count}</td>
-      <td>${row.w7_avg_txn_count}</td>
+      <td>${fmtNum(row.store_count)}</td>
+      <td>${fmtNum(row.w7_avg_txn_count)}</td>
       <td>${fmtRate(row.w7_mini_program_ratio)}</td>
+      <td>${row.contact_assistant}</td>
+      <td>${row.operating_sp}</td>
+      <td>${row.owner}</td>
       <td>${row.activity_id}</td>
       <td title="${row.activity_name}" style="max-width:180px;overflow:hidden;text-overflow:ellipsis">${row.activity_name}</td>
       <td>${fmtNum(row.exposure_uv)}</td>
@@ -186,7 +326,7 @@ function renderDetailTable() {
       <td class="${rateClass(row.w7_store_redeem_rate_uv)}">${fmtRate(row.w7_store_redeem_rate_uv)}</td>
     </tr>`;
   }
-  tbody.innerHTML = html || '<tr><td colspan="21" style="text-align:center;padding:32px;color:var(--text-muted)">暂无数据</td></tr>';
+  tbody.innerHTML = html || '<tr><td colspan="24" style="text-align:center;padding:32px;color:var(--text-muted)">暂无数据</td></tr>';
 
   renderPagination(total, totalPages);
 }
@@ -217,4 +357,46 @@ function goPage(p) {
   currentPage = Math.max(1, Math.min(p, totalPages));
   renderDetailTable();
   document.getElementById('detail-section').scrollIntoView({ behavior: 'smooth' });
+}
+
+// ============================================================
+// 导出表格为 CSV
+// ============================================================
+function exportDetailCSV() {
+  if (filteredData.length === 0) { alert('暂无数据可导出'); return; }
+
+  const headers = [
+    '类目', '品牌ID', '品牌名称', '门店数', '日均交易笔数', '小程序占比',
+    '对接助理', '服务商', '负责人',
+    '活动ID', '活动名称',
+    '曝光UV', '领取UV', '核销UV', 'UV曝光领取率', 'UV领取核销率', 'UV曝光核销率',
+    '曝光PV', '领取PV', '核销PV', 'PV曝光领取率', 'PV领取核销率', 'PV曝光核销率',
+    '到店核销率',
+  ];
+
+  const csvRows = [headers.join(',')];
+
+  for (const row of filteredData) {
+    const vals = [
+      row.category_l4, row.brand_id, `"${row.brand_name}"`, row.store_count, row.w7_avg_txn_count,
+      fmtRate(row.w7_mini_program_ratio),
+      `"${row.contact_assistant}"`, `"${row.operating_sp}"`, `"${row.owner}"`,
+      row.activity_id, `"${row.activity_name}"`,
+      row.exposure_uv, row.claim_uv, row.redeem_uv,
+      fmtRate(row.uv_exposure_claim), fmtRate(row.uv_claim_redeem), fmtRate(row.uv_exposure_redeem),
+      row.exposure_pv, row.claim_pv, row.redeem_pv,
+      fmtRate(row.pv_exposure_claim), fmtRate(row.pv_claim_redeem), fmtRate(row.pv_exposure_redeem),
+      fmtRate(row.w7_store_redeem_rate_uv),
+    ];
+    csvRows.push(vals.join(','));
+  }
+
+  const bom = '\uFEFF';
+  const blob = new Blob([bom + csvRows.join('\n')], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `活动明细_${new Date().toISOString().slice(0, 10)}.csv`;
+  link.click();
+  URL.revokeObjectURL(url);
 }

@@ -33,11 +33,12 @@
 
     <!-- 品牌诊断卡片 -->
     <div class="diag-section">
-      <h2 class="section-title">🔍 品牌诊断卡片</h2>
+      <h2 class="section-title" style="padding:0">🔍 品牌诊断卡片</h2>
       <div class="diag-controls">
-        <select id="brand-diag-select">
-          <option value="">-- 加载中 --</option>
-        </select>
+        <div class="diag-search-wrap">
+          <input type="text" class="diag-search-input" id="brand-diag-input" placeholder="输入品牌ID或品牌名称搜索...">
+          <div class="diag-search-dropdown" id="brand-diag-dropdown"></div>
+        </div>
         <button class="btn-primary" onclick="generateDiagCard()">生成诊断卡片</button>
       </div>
       <div id="diag-card-container"></div>
@@ -47,6 +48,9 @@
 
     <!-- 分类目 Top3 最佳实践 -->
     <h2 class="section-title" style="padding:20px 32px 0">🏆 分类目最佳实践（四级类目 × 指标 Top3）</h2>
+    <p style="padding:0 32px;margin:4px 0 0;font-size:13px;color:var(--text-muted)">
+      仅展示：茶饮咖啡、西式快餐、中式快餐、正餐、小吃、甜品烘焙
+    </p>
     <div class="action-bar">
       <label style="display:flex;align-items:center;gap:8px;font-size:14px;color:var(--text-muted);cursor:pointer">
         <input type="checkbox" class="custom-check" id="select-all-cats" onchange="toggleAllCategories(this.checked)">
@@ -68,9 +72,19 @@
       <select id="category-filter" onchange="filterDetailData()">
         <option value="">全部类目</option>
       </select>
+
       <label style="font-size:14px;color:var(--text-muted);margin-left:8px">搜索品牌</label>
       <input type="text" id="brand-search" placeholder="品牌名称或ID" onkeyup="if(event.key==='Enter')filterDetailData()">
       <button class="btn-primary" onclick="filterDetailData()">搜索</button>
+
+      <div style="flex:1"></div>
+
+      <!-- 多选筛选 -->
+      <div class="multi-select-wrap" id="ms-assistant"></div>
+      <div class="multi-select-wrap" id="ms-sp"></div>
+      <div class="multi-select-wrap" id="ms-owner"></div>
+
+      <button class="btn-secondary" onclick="exportDetailCSV()">📥 导出CSV</button>
     </div>
 
     <div class="detail-table-wrap">
@@ -78,6 +92,7 @@
         <thead>
           <tr>
             <th class="group-header" colspan="6">基础信息</th>
+            <th class="group-header" colspan="3">对接信息</th>
             <th class="group-header" colspan="2">活动信息</th>
             <th class="group-header" colspan="6">UV 数据</th>
             <th class="group-header" colspan="6">PV 数据</th>
@@ -90,6 +105,9 @@
             <th>门店数</th>
             <th>日均交易笔数</th>
             <th>小程序占比</th>
+            <th>对接助理</th>
+            <th>服务商</th>
+            <th>负责人</th>
             <th>活动ID</th>
             <th>活动名称</th>
             <th>曝光UV</th>
@@ -108,7 +126,7 @@
           </tr>
         </thead>
         <tbody id="detail-table-body">
-          <tr><td colspan="21" style="text-align:center;padding:32px;color:var(--text-muted)">加载中...</td></tr>
+          <tr><td colspan="24" style="text-align:center;padding:32px;color:var(--text-muted)">加载中...</td></tr>
         </tbody>
       </table>
     </div>
@@ -124,7 +142,6 @@
   <script src="js/best-practice.js"></script>
   <script src="js/activity-detail.js"></script>
   <script>
-    // Tab switching
     function switchTab(tabName) {
       document.querySelectorAll('.tab-item').forEach(t => {
         t.classList.toggle('active', t.dataset.tab === tabName);
@@ -132,16 +149,13 @@
       document.getElementById('best-practice-section').style.display = tabName === 'best-practice' ? '' : 'none';
       document.getElementById('detail-section').style.display = tabName === 'activity-detail' ? '' : 'none';
 
-      // Lazy load
       if (tabName === 'activity-detail' && detailData.length === 0) {
         loadActivityDetail();
       }
     }
 
-    // Init
     document.addEventListener('DOMContentLoaded', async () => {
       loadBestPracticeData();
-      // Update time
       const { data } = await supabaseClient
         .from('tem_brand_daily')
         .select('report_date')
