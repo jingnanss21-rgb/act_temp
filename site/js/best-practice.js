@@ -304,7 +304,7 @@ function openLayer2(catKey) {
 
       // 到店人数倒推
       const storeVisit = item.store_visit_uv;
-      const storeVisitStr = storeVisit !== null ? fmtNum(storeVisit) + ' <span style="font-size:10px;color:var(--text-muted)">*预估</span>' : '-';
+      const storeVisitStr = storeVisit !== null ? fmtNum(storeVisit) : '-';
 
       html += `<div class="drawer-card" onclick="event.stopPropagation(); openLayer3('${catKey}', '${item.activity_id}', '${item.brand_id}')">
         <div class="drawer-card-head">
