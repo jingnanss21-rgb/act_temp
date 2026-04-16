@@ -474,6 +474,28 @@ body {
 .search-dropdown .diag-search-item:hover {
   background: #EFF6FF;
 }
+
+/* FIX: Bug #1 - 下拉选项不换行 */
+.dd-item, .diag-search-item, .search-dropdown .diag-search-item {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.diag-dropdown, .search-dropdown {
+  min-width: 320px;
+}
+
+/* FIX: Bug #3 - Stepper 步骤条样式 */
+.dac-stepper { display: flex; align-items: center; justify-content: center; gap: 0; padding: 10px 0; }
+.dac-node { text-align: center; min-width: 70px; }
+.dac-node-label { font-size: 11px; color: #94A3B8; }
+.dac-node-val { font-size: 17px; font-weight: 700; color: #1E293B; }
+.dac-step-arrow { display: flex; flex-direction: column; align-items: center; padding: 0 6px; }
+.dac-step-rate { font-size: 11px; color: #2563EB; font-weight: 600; }
+.dac-step-line { color: #CBD5E1; font-size: 16px; }
+
+/* FIX: Bug #6 - 统一预估标签 */
+.est-tag { font-size: 10px; color: #F59E0B; font-weight: 500; vertical-align: super; margin-left: 2px; line-height: 1; cursor: help; }
 .diag-search-dropdown.show { display: block; }
 .diag-search-item {
   padding: 10px 14px;

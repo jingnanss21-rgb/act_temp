@@ -429,11 +429,12 @@ function renderDiagRadar() {
   chart.setOption({
     tooltip: { trigger: 'item' },
     radar: {
+      radius: '55%',  // FIX: Bug #2 - 缩小radius给标签留空间
       indicator: DIAG_METRICS.map((mk, i) => ({
-        name: mk.label, max: maxVals[i] || 0.1
+        name: mk.label.replace('率', ''), max: maxVals[i] || 0.1  // FIX: Bug #2 - 简称避免截断
       })),
       shape: 'polygon',
-      axisName: { color: '#4B5563', fontSize: 12, fontWeight: 500 },
+      axisName: { color: '#4B5563', fontSize: 13, fontWeight: 600 },
       splitArea: { areaStyle: { color: ['rgba(37,99,235,0.02)', 'rgba(37,99,235,0.04)'] } },
       splitLine: { lineStyle: { color: '#E5E7EB' } },
     },
@@ -509,20 +510,30 @@ function renderBenchmark() {
     <div class="diag-scale">
       <div class="scale-bar">
         <div class="scale-fill" style="width:${brandPct}%;background:${isWeak ? '#DC2626' : '#2563EB'}"></div>
-        <div class="scale-marker scale-med" style="left:${medPct}%"><div class="sm-line"></div><div class="sm-label">中位 ${fmtPctDiag(med)}</div></div>
-        <div class="scale-marker scale-brand" style="left:${Math.min(brandPct, 95)}%"><div class="sm-dot" style="background:${isWeak ? '#DC2626' : '#2563EB'}"></div><div class="sm-label" style="color:${isWeak ? '#DC2626' : '#2563EB'}">▼ ${b.brand_name} ${fmtPctDiag(brandVal)}</div></div>
+        <!-- FIX: Bug #5 - 中位数标记增强：加粗线+标签背景+菱形 -->
+        <div class="scale-marker scale-med" style="left:${medPct}%">
+          <div style="width:2px;height:28px;background:#64748B;margin:0 auto"></div>
+          <div style="font-size:13px;color:#64748B;font-weight:600;background:#F1F5F9;padding:2px 8px;border-radius:4px;white-space:nowrap;margin-top:4px">◆ 中位 ${fmtPctDiag(med)}</div>
+        </div>
+        <!-- 品牌标记 -->
+        <div class="scale-marker scale-brand" style="left:${Math.min(brandPct, 95)}%">
+          <div class="sm-dot" style="background:${isWeak ? '#DC2626' : '#2563EB'}"></div>
+          <div class="sm-label" style="color:${isWeak ? '#DC2626' : '#2563EB'};font-weight:600;white-space:nowrap;font-size:12px">▼ ${b.brand_name} ${fmtPctDiag(brandVal)}${diffTop1 < 0.001 ? ' 🥇' : ''}</div>
+        </div>
+        <!-- FIX: Bug #4 - Top3标记交错上下防碰撞，品牌=Top1时合并 -->
         ${top3.map((t, i) => {
+          if (i === 0 && diffTop1 < 0.001) return ''; // 品牌就是Top1，已在品牌标记中合并
           const pos = (t[mk.key] / scaleMax) * 100;
           const medals = ['🥇', '🥈', '🥉'];
-          // FIX: Bug #6 - 奖牌旁加数值标注
-          return `<div class="scale-marker scale-top" style="left:${Math.min(pos, 98)}%">
-            <div class="sm-label" style="font-size:10px;white-space:nowrap">${medals[i]}<br>${fmtPctDiag(t[mk.key])}</div>
+          const isTop = i % 2 === 0; // 交错上下
+          return `<div class="scale-marker" style="left:${Math.min(pos, 98)}%;${isTop ? 'top:-30px' : 'bottom:-30px'}">
+            <div style="font-size:11px;white-space:nowrap;text-align:center">${medals[i]}<br><b>${fmtPctDiag(t[mk.key])}</b></div>
           </div>`;
         }).join('')}
       </div>
       <div class="scale-diff">
-        <span style="color:${isWeak ? '#DC2626' : '#16A34A'}">距中位${isWeak ? '还差' : '超出'} <b>${(diffMed * 100).toFixed(1)}</b> 个百分点</span>
-        <span style="color:#D97706;margin-left:12px">距Top1还差 <b>${(diffTop1 * 100).toFixed(1)}</b> 个百分点</span>
+        <span style="color:${isWeak ? '#DC2626' : '#16A34A'};font-size:14px">距中位${isWeak ? '还差' : '超出'} <b>${(diffMed * 100).toFixed(1)}</b> 个百分点</span>
+        <span style="color:#D97706;margin-left:16px;font-size:14px">${diffTop1 < 0.001 ? '🎉 你就是 Top1！' : `距Top1还差 <b>${(diffTop1 * 100).toFixed(1)}</b> 个百分点`}</span>
       </div>
     </div>
 
@@ -639,14 +650,14 @@ function renderDiagActivities() {
     return `<div class="diag-activity-card">
       <div class="dac-header">
         <div class="dac-name">${a.activity_name}</div>
-        <div class="dac-stats">曝光 ${fmtNum(a.exposure_pv)} | 领取 ${fmtNum(a.claim_pv)} | 核销 ${fmtNum(a.redeem_pv)}</div>
       </div>
-      <div class="dac-funnel-mini">
-        <span class="dac-f-step">曝光 ${fmtNum(a.exposure_pv)}</span>
-        <span class="dac-f-arrow">→<span style="font-size:10px;color:#2563EB">${fmtPctDiag(ecr)}</span>→</span>
-        <span class="dac-f-step">领取 ${fmtNum(a.claim_pv)}</span>
-        <span class="dac-f-arrow">→<span style="font-size:10px;color:#2563EB">${fmtPctDiag(crr)}</span>→</span>
-        <span class="dac-f-step">核销 ${fmtNum(a.redeem_pv)}</span>
+      <!-- FIX: Bug #3 - 改为 stepper 步骤条样式，删除重复行 -->
+      <div class="dac-stepper">
+        <div class="dac-node"><div class="dac-node-label">曝光</div><div class="dac-node-val">${fmtNum(a.exposure_pv)}</div></div>
+        <div class="dac-step-arrow"><div class="dac-step-rate">${fmtPctDiag(ecr)}</div><div class="dac-step-line">→</div></div>
+        <div class="dac-node"><div class="dac-node-label">领取</div><div class="dac-node-val">${fmtNum(a.claim_pv)}</div></div>
+        <div class="dac-step-arrow"><div class="dac-step-rate">${fmtPctDiag(crr)}</div><div class="dac-step-line">→</div></div>
+        <div class="dac-node"><div class="dac-node-label">核销</div><div class="dac-node-val">${fmtNum(a.redeem_pv)}</div></div>
       </div>
       <div class="dac-grid">
         ${progressBar('曝光领取率', ecr, meds.exposure_claim || 0)}
