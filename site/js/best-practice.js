@@ -2,12 +2,27 @@
  * best-practice.js - 分类目最佳实践 + 品牌诊断卡片
  */
 
-// 只展示这 6 个行业的四级类目
-const ALLOWED_CATEGORIES = ['茶饮咖啡', '西式快餐', '中式快餐', '正餐', '小吃', '甜品烘焙'];
+// 固定行业顺序
+const CATEGORY_ORDER = ['茶饮咖啡', '中式快餐', '西式快餐', '正餐', '小吃', '甜品烘焙'];
+
+// 转化率异常阈值 — 超过即标记异常，Top3 统计时剔除
+const RATE_CAPS = {
+  exposure_claim: 0.40,
+  claim_redeem: 0.40,
+  exposure_redeem: 0.10,
+};
+
+function isAnomalyActivity(item) {
+  return (
+    item.exposure_claim_rate > RATE_CAPS.exposure_claim ||
+    item.claim_redeem_rate > RATE_CAPS.claim_redeem ||
+    item.exposure_redeem_rate > RATE_CAPS.exposure_redeem
+  );
+}
 
 function isCategoryAllowed(catL4) {
   if (!catL4) return false;
-  return ALLOWED_CATEGORIES.some(kw => catL4.includes(kw));
+  return CATEGORY_ORDER.some(kw => catL4.includes(kw));
 }
 
 const METRICS = [
@@ -31,34 +46,44 @@ let bestPracticeData = {};
 let selectedCategories = new Set();
 let allBrandDaily = [];
 let allActivitiesForBP = [];
+let trackedBrandIdsForDiag = new Set(); // 跟进表品牌
 
 async function loadBestPracticeData() {
   const container = document.getElementById('best-practice-container');
   container.innerHTML = '<div class="loading"><div class="spinner"></div><p>加载数据中...</p></div>';
 
   try {
-    const { data: brandData, error: bErr } = await supabaseClient
-      .from('tem_brand_daily')
-      .select('brand_id, brand_name, category_l4, report_date, w7_exposure_claim_rate, w7_claim_redeem_rate, w7_exposure_redeem_rate, w7_store_redeem_rate_uv, w7_avg_exposure_pv, w7_avg_claim_pv, w7_avg_redeem_pv')
-      .order('report_date', { ascending: false })
-      .limit(5000);
+    // 并行加载品牌日报 + 活动 + 商户对接
+    const [brandResult, actResult, merchantResult] = await Promise.all([
+      supabaseClient.from('tem_brand_daily')
+        .select('brand_id, brand_name, category_l4, report_date, w7_exposure_claim_rate, w7_claim_redeem_rate, w7_exposure_redeem_rate, w7_store_redeem_rate_uv, w7_avg_exposure_pv, w7_avg_claim_pv, w7_avg_redeem_pv')
+        .order('report_date', { ascending: false }).limit(5000),
+      supabaseClient.from('tem_activities')
+        .select('activity_id, brand_id, brand_name, activity_name, exposure_pv, claim_pv, redeem_pv, exposure_uv, claim_uv, redeem_uv')
+        .limit(10000),
+      supabaseClient.from('tem_merchant_contacts')
+        .select('brand_id').limit(5000),
+    ]);
 
-    if (bErr) throw bErr;
+    if (brandResult.error) throw brandResult.error;
+    if (actResult.error) throw actResult.error;
+
+    // 构建跟进表品牌id集合
+    trackedBrandIdsForDiag = new Set();
+    for (const m of (merchantResult.data || [])) {
+      if (m.brand_id) trackedBrandIdsForDiag.add(String(m.brand_id));
+    }
 
     const latestByBrand = {};
-    for (const row of brandData) {
+    for (const row of brandResult.data) {
       if (!row.brand_id) continue;
       if (!latestByBrand[row.brand_id]) latestByBrand[row.brand_id] = row;
     }
     allBrandDaily = Object.values(latestByBrand);
 
-    const { data: actData, error: aErr } = await supabaseClient
-      .from('tem_activities')
-      .select('activity_id, brand_id, brand_name, activity_name, exposure_pv, claim_pv, redeem_pv, exposure_uv, claim_uv, redeem_uv')
-      .limit(10000);
-    if (aErr) throw aErr;
+    const actData = actResult.data || [];
 
-    // 按四级类目分组，只保留允许的类目
+    // 按四级类目分组
     const categoryMap = {};
     allActivitiesForBP = [];
 
@@ -81,6 +106,7 @@ async function loadBestPracticeData() {
         exposure_redeem_rate: eUv > 0 ? rUv / eUv : 0,
         store_redeem_rate: parseFloat(brand?.w7_store_redeem_rate_uv) || 0,
       };
+      item.is_anomaly = isAnomalyActivity(item);
 
       if (!categoryMap[cat]) categoryMap[cat] = [];
       categoryMap[cat].push(item);
@@ -90,8 +116,9 @@ async function loadBestPracticeData() {
     bestPracticeData = {};
     for (const [cat, items] of Object.entries(categoryMap)) {
       bestPracticeData[cat] = {};
+      const normalItems = items.filter(i => !i.is_anomaly);
       for (const mk of METRICS) {
-        const sorted = [...items].sort((a, b) => b[mk.calcField] - a[mk.calcField]);
+        const sorted = [...normalItems].sort((a, b) => b[mk.calcField] - a[mk.calcField]);
         bestPracticeData[cat][mk.key] = sorted.slice(0, 3).map((item, idx) => ({
           rank: idx + 1,
           brand_name: item.brand_name,
@@ -111,41 +138,56 @@ async function loadBestPracticeData() {
 
 function renderBestPracticeCards() {
   const container = document.getElementById('best-practice-container');
-  const categories = Object.keys(bestPracticeData).sort();
 
-  if (categories.length === 0) {
+  // 按固定顺序排列
+  const categories = CATEGORY_ORDER.filter(cat => {
+    // 找到匹配的四级类目
+    return Object.keys(bestPracticeData).some(k => k.includes(cat));
+  });
+
+  // 建立映射：行业关键词 → 实际四级类目名
+  const catMapping = {};
+  for (const kw of CATEGORY_ORDER) {
+    const matchedCats = Object.keys(bestPracticeData).filter(k => k.includes(kw));
+    if (matchedCats.length > 0) catMapping[kw] = matchedCats;
+  }
+
+  if (Object.keys(bestPracticeData).length === 0) {
     container.innerHTML = '<div class="loading"><p>暂无数据</p></div>';
     return;
   }
 
   let html = '';
-  for (const cat of categories) {
-    const checked = selectedCategories.has(cat) ? 'checked' : '';
-    html += `<div class="cat-card" data-category="${cat}">
-      <div class="card-header">
-        <input type="checkbox" class="custom-check cat-check" data-cat="${cat}" ${checked} onchange="toggleCategory('${cat}', this.checked)">
-        <span class="card-title">${cat}</span>
-      </div>`;
-
-    for (const metric of METRICS) {
-      const top3 = bestPracticeData[cat][metric.key] || [];
-      html += `<div class="metric-block">
-        <span class="metric-label">${metric.label}</span>`;
-      for (const item of top3) {
-        const rateStr = (item.rate * 100).toFixed(1) + '%';
-        html += `<div class="top-item">
-          <span class="rank-badge rank-${item.rank}">${item.rank}</span>
-          <span class="brand-name">${item.brand_name}</span>
-          <span class="act-name" title="${item.activity_name}">${item.activity_name}</span>
-          <span class="rate-value">${rateStr}</span>
+  for (const kw of CATEGORY_ORDER) {
+    const matchedCats = catMapping[kw] || [];
+    for (const cat of matchedCats) {
+      const checked = selectedCategories.has(cat) ? 'checked' : '';
+      html += `<div class="cat-card" data-category="${cat}">
+        <div class="card-header">
+          <input type="checkbox" class="custom-check cat-check" data-cat="${cat}" ${checked} onchange="toggleCategory('${cat}', this.checked)">
+          <span class="card-title">${cat}</span>
         </div>`;
-      }
-      if (top3.length === 0) {
-        html += '<div class="top-item" style="color:var(--text-muted)">暂无数据</div>';
+
+      for (const metric of METRICS) {
+        const top3 = bestPracticeData[cat][metric.key] || [];
+        html += `<div class="metric-block">
+          <span class="metric-label">${metric.label}</span>`;
+        for (const item of top3) {
+          const rateStr = (item.rate * 100).toFixed(1) + '%';
+          html += `<div class="top-item">
+            <span class="rank-badge rank-${item.rank}">${item.rank}</span>
+            <span class="brand-name">${item.brand_name}</span>
+            <span class="act-name" title="${item.activity_name}">${item.activity_name}</span>
+            <span class="rate-value">${rateStr}</span>
+          </div>`;
+        }
+        if (top3.length === 0) {
+          html += '<div class="top-item" style="color:var(--text-muted)">暂无数据</div>';
+        }
+        html += '</div>';
       }
       html += '</div>';
     }
-    html += '</div>';
   }
   container.innerHTML = html;
 }
@@ -189,14 +231,15 @@ async function exportCardsAsImage() {
 }
 
 // ============================================================
-// 品牌诊断卡片 - 搜索式下拉
+// 品牌诊断卡片 - 搜索式下拉（只搜跟进表商户）
 // ============================================================
 
 let diagBrandList = [];
 
 function initBrandDiagnostics() {
+  // 只保留跟进表里有的品牌
   diagBrandList = allBrandDaily
-    .filter(b => b.brand_name && b.category_l4)
+    .filter(b => b.brand_name && b.category_l4 && trackedBrandIdsForDiag.has(String(b.brand_id)))
     .sort((a, b) => (a.brand_name || '').localeCompare(b.brand_name || ''));
 
   const input = document.getElementById('brand-diag-input');
@@ -211,7 +254,6 @@ function initBrandDiagnostics() {
     showDiagDropdown(input.value.trim().toLowerCase());
   });
 
-  // 点击外部关闭下拉
   document.addEventListener('click', (e) => {
     if (!e.target.closest('.diag-search-wrap')) {
       document.getElementById('brand-diag-dropdown')?.classList.remove('show');
@@ -232,7 +274,7 @@ function showDiagDropdown(keyword) {
   }
 
   if (filtered.length === 0) {
-    dropdown.innerHTML = '<div style="padding:12px 14px;color:var(--text-muted);font-size:13px">未找到匹配品牌</div>';
+    dropdown.innerHTML = '<div style="padding:12px 14px;color:var(--text-muted);font-size:13px">未找到匹配品牌（仅支持跟进表商户）</div>';
   } else {
     dropdown.innerHTML = filtered.slice(0, 30).map(b =>
       `<div class="diag-search-item" onclick="selectDiagBrand('${b.brand_id}')">

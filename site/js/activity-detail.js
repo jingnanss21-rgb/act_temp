@@ -10,6 +10,29 @@ let currentPage = 1;
 const PAGE_SIZE = 50;
 let allCategories = [];
 
+// 转化率异常阈值
+const DETAIL_RATE_CAPS = {
+  exposure_claim: 0.40,   // 曝光领取率 40%
+  claim_redeem: 0.40,     // 领取核销率 40%
+  exposure_redeem: 0.10,  // 曝光核销率 10%
+};
+
+function isRateAnomaly(field, value) {
+  if (field === 'exposure_claim' && value > DETAIL_RATE_CAPS.exposure_claim) return true;
+  if (field === 'claim_redeem' && value > DETAIL_RATE_CAPS.claim_redeem) return true;
+  if (field === 'exposure_redeem' && value > DETAIL_RATE_CAPS.exposure_redeem) return true;
+  return false;
+}
+
+function fmtRateWithAnomaly(rate, field) {
+  const str = fmtRate(rate);
+  if (typeof rate !== 'number' || isNaN(rate)) return str;
+  if (isRateAnomaly(field, rate)) {
+    return `<span class="anomaly-value" title="超过阈值，数据异常">⚠ ${str}</span>`;
+  }
+  return str;
+}
+
 // 关联数据
 let merchantMap = {};     // brand_id → { contact_assistant, operating_sp }
 let spOwnerMap = {};      // sp_name → owner (负责人)
@@ -299,7 +322,17 @@ function renderDetailTable() {
 
   let html = '';
   for (const row of pageData) {
-    html += `<tr>
+    // 判断该活动是否有异常转化率
+    const hasAnomaly =
+      isRateAnomaly('exposure_claim', row.uv_exposure_claim) ||
+      isRateAnomaly('claim_redeem', row.uv_claim_redeem) ||
+      isRateAnomaly('exposure_redeem', row.uv_exposure_redeem) ||
+      isRateAnomaly('exposure_claim', row.pv_exposure_claim) ||
+      isRateAnomaly('claim_redeem', row.pv_claim_redeem) ||
+      isRateAnomaly('exposure_redeem', row.pv_exposure_redeem);
+
+    const rowClass = hasAnomaly ? ' class="anomaly-row"' : '';
+    html += `<tr${rowClass}>
       <td>${row.category_l4}</td>
       <td>${row.brand_id}</td>
       <td style="font-weight:500">${row.brand_name}</td>
@@ -314,15 +347,15 @@ function renderDetailTable() {
       <td>${fmtNum(row.exposure_uv)}</td>
       <td>${fmtNum(row.claim_uv)}</td>
       <td>${fmtNum(row.redeem_uv)}</td>
-      <td class="${rateClass(row.uv_exposure_claim)}">${fmtRate(row.uv_exposure_claim)}</td>
-      <td class="${rateClass(row.uv_claim_redeem)}">${fmtRate(row.uv_claim_redeem)}</td>
-      <td class="${rateClass(row.uv_exposure_redeem)}">${fmtRate(row.uv_exposure_redeem)}</td>
+      <td class="${rateClass(row.uv_exposure_claim)}">${fmtRateWithAnomaly(row.uv_exposure_claim, 'exposure_claim')}</td>
+      <td class="${rateClass(row.uv_claim_redeem)}">${fmtRateWithAnomaly(row.uv_claim_redeem, 'claim_redeem')}</td>
+      <td class="${rateClass(row.uv_exposure_redeem)}">${fmtRateWithAnomaly(row.uv_exposure_redeem, 'exposure_redeem')}</td>
       <td>${fmtNum(row.exposure_pv)}</td>
       <td>${fmtNum(row.claim_pv)}</td>
       <td>${fmtNum(row.redeem_pv)}</td>
-      <td class="${rateClass(row.pv_exposure_claim)}">${fmtRate(row.pv_exposure_claim)}</td>
-      <td class="${rateClass(row.pv_claim_redeem)}">${fmtRate(row.pv_claim_redeem)}</td>
-      <td class="${rateClass(row.pv_exposure_redeem)}">${fmtRate(row.pv_exposure_redeem)}</td>
+      <td class="${rateClass(row.pv_exposure_claim)}">${fmtRateWithAnomaly(row.pv_exposure_claim, 'exposure_claim')}</td>
+      <td class="${rateClass(row.pv_claim_redeem)}">${fmtRateWithAnomaly(row.pv_claim_redeem, 'claim_redeem')}</td>
+      <td class="${rateClass(row.pv_exposure_redeem)}">${fmtRateWithAnomaly(row.pv_exposure_redeem, 'exposure_redeem')}</td>
       <td class="${rateClass(row.w7_store_redeem_rate_uv)}">${fmtRate(row.w7_store_redeem_rate_uv)}</td>
     </tr>`;
   }

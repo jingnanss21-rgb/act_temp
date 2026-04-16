@@ -68,23 +68,24 @@
   <!-- Tab 2: 品牌活动明细 -->
   <div id="detail-section" class="tab-content" style="display:none;">
     <div class="filter-bar">
-      <label style="font-size:14px;color:var(--text-muted)">类目</label>
-      <select id="category-filter" onchange="filterDetailData()">
-        <option value="">全部类目</option>
-      </select>
+      <div class="filter-left">
+        <label class="filter-label">类目</label>
+        <select id="category-filter" onchange="filterDetailData()">
+          <option value="">全部类目</option>
+        </select>
 
-      <label style="font-size:14px;color:var(--text-muted);margin-left:8px">搜索品牌</label>
-      <input type="text" id="brand-search" placeholder="品牌名称或ID" onkeyup="if(event.key==='Enter')filterDetailData()">
-      <button class="btn-primary" onclick="filterDetailData()">搜索</button>
+        <label class="filter-label">品牌</label>
+        <input type="text" id="brand-search" placeholder="名称或ID" onkeyup="if(event.key==='Enter')filterDetailData()">
 
-      <div style="flex:1"></div>
+        <div class="multi-select-wrap" id="ms-assistant"></div>
+        <div class="multi-select-wrap" id="ms-sp"></div>
+        <div class="multi-select-wrap" id="ms-owner"></div>
 
-      <!-- 多选筛选 -->
-      <div class="multi-select-wrap" id="ms-assistant"></div>
-      <div class="multi-select-wrap" id="ms-sp"></div>
-      <div class="multi-select-wrap" id="ms-owner"></div>
-
-      <button class="btn-secondary" onclick="exportDetailCSV()">📥 导出CSV</button>
+        <button class="btn-primary btn-sm" onclick="filterDetailData()">搜索</button>
+      </div>
+      <div class="filter-right">
+        <button class="btn-secondary" onclick="exportDetailCSV()">📥 导出CSV</button>
+      </div>
     </div>
 
     <div class="detail-table-wrap">
