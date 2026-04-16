@@ -35,6 +35,22 @@ function fmtRateWithAnomaly(rate, field) {
   return str;
 }
 
+// 到店核销率专用：底表存的是百分比字符串如 "52.86%"，不能 parseFloat 后再乘100
+function fmtStoreRate(val) {
+  if (!val || val === '-') return '-';
+  const s = String(val).trim();
+  if (s.includes('%')) {
+    const num = parseFloat(s);
+    if (!isNaN(num) && num >= 100) return '<span class="anomaly-value" title="转化率超过阈值">⚠ 数据异常</span>';
+    return s;
+  }
+  const f = parseFloat(s);
+  if (isNaN(f)) return '-';
+  if (f >= 100) return '<span class="anomaly-value" title="转化率超过阈值">⚠ 数据异常</span>';
+  if (f <= 1) return (f * 100).toFixed(1) + '%';
+  return f.toFixed(1) + '%';
+}
+
 // 关联数据
 let merchantMap = {};     // brand_id → { contact_assistant, operating_sp }
 let spOwnerMap = {};      // sp_name → owner (负责人)
@@ -410,7 +426,7 @@ function renderDetailTable() {
       <td class="${rateClass(row.pv_exposure_claim)}">${fmtRateWithAnomaly(row.pv_exposure_claim, 'exposure_claim')}</td>
       <td class="${rateClass(row.pv_claim_redeem)}">${fmtRateWithAnomaly(row.pv_claim_redeem, 'claim_redeem')}</td>
       <td class="${rateClass(row.pv_exposure_redeem)}">${fmtRateWithAnomaly(row.pv_exposure_redeem, 'exposure_redeem')}</td>
-      <td class="${rateClass(row.w7_store_redeem_rate_uv)}">${fmtRateWithAnomaly(parseFloat(row.w7_store_redeem_rate_uv) || 0, 'store_redeem')}</td>
+      <td class="${rateClass(row.w7_store_redeem_rate_uv)}">${fmtStoreRate(row.w7_store_redeem_rate_uv)}</td>
     </tr>`;
   }
   tbody.innerHTML = html || '<tr><td colspan="24" style="text-align:center;padding:32px;color:var(--text-muted)">暂无数据</td></tr>';
