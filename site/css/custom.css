@@ -450,6 +450,30 @@ body {
   overflow-y: auto;
   margin-top: 4px;
 }
+.search-dropdown {
+  display: none;
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  z-index: 100;
+  background: var(--bg-white);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.1);
+  max-height: 260px;
+  overflow-y: auto;
+  margin-top: 4px;
+}
+.search-dropdown .diag-search-item {
+  padding: 8px 12px;
+  cursor: pointer;
+  font-size: 13px;
+  border-bottom: 1px solid #F1F5F9;
+}
+.search-dropdown .diag-search-item:hover {
+  background: #EFF6FF;
+}
 .diag-search-dropdown.show { display: block; }
 .diag-search-item {
   padding: 10px 14px;
