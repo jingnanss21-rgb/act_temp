@@ -341,12 +341,12 @@ function openLayer2(catKey) {
         const step = funnelSteps[fi];
         const opacity = 1 - fi * 0.15;
         const numStr = step.value ? fmtNum(step.value) : '-';
-        const estSup = step.est ? '<sup style="font-size:8px;opacity:0.7;margin-left:1px" title="因活动维度到店核销数据缺失，暂按照品牌维度到店核销倒推">*预估</sup>' : '';
+        const estNote = step.est ? '<div style="text-align:center;font-size:9px;color:#FAAD14;margin-top:2px;cursor:help" title="因活动维度到店核销数据缺失，暂按照品牌维度到店核销倒推，即活动预估领取到店人数=活动核销人数/品牌整体到店核销率">*预估</div>' : '';
         html += `<div class="fg-step" style="flex:1">
           <div class="fg-bar" style="background:${color};opacity:${opacity};min-height:50px">
             <span class="fg-label">${step.label}</span>
-            <span class="fg-num">${numStr}${estSup}</span>
-          </div>
+            <span class="fg-num">${numStr}</span>
+          </div>${estNote}
         </div>`;
         if (fi < funnelSteps.length - 1) {
           html += `<div class="fg-arrow">▶</div>`;

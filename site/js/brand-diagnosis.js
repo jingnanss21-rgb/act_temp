@@ -27,7 +27,7 @@ const DIAG_METRICS = [
 
 const DIAG_CATEGORIES = ['茶饮咖啡', '中式快餐', '西式快餐', '正餐', '小吃', '甜品烘焙'];
 
-const RATE_CAPS = { exposure_claim: 0.40, claim_redeem: 0.80, exposure_redeem: 0.10 };
+const DIAG_RATE_CAPS = { exposure_claim: 0.40, claim_redeem: 0.80, exposure_redeem: 0.10 };
 
 // ============================================================
 // 初始化
