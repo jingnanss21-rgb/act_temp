@@ -342,10 +342,10 @@ function renderDiagResult() {
         const fp = (v) => isNaN(v) ? '-' : (v * 100).toFixed(1) + '%';
 
         const nodes = [
-          { label: '曝光人数', value: fmtNum(exposurePv), unit: '人', flex: 4, minW: 160, opacity: '' },
-          { label: '领取人数', value: fmtNum(claimPv), unit: '人', flex: 3, minW: 130, opacity: 'CC' },
-          { label: '到店人数', value: storeVisit !== null ? fmtNum(storeVisit) : '-', unit: '人*预估', flex: 2, minW: 110, opacity: 'AA' },
-          { label: '核销人数', value: fmtNum(redeemPv), unit: '人', flex: 1, minW: 100, opacity: '88' },
+          { label: '曝光人数', value: fmtNum(exposurePv), unit: '人', opacity: '' },
+          { label: '领取人数', value: fmtNum(claimPv), unit: '人', opacity: 'CC' },
+          { label: '到店人数', value: storeVisit !== null ? fmtNum(storeVisit) : '-', unit: '人*预估', opacity: 'AA' },
+          { label: '核销人数', value: fmtNum(redeemPv), unit: '人', opacity: '88' },
         ];
         const arrows = [
           { rateLabel: '曝光领取率', rate: fp(expClm), loss: fp(lossRate(expClm)) },
@@ -355,7 +355,7 @@ function renderDiagResult() {
 
         let html = '<div class="hfunnel-wrap">';
         nodes.forEach((n, i) => {
-          html += `<div class="hfunnel-node" style="flex:${n.flex};min-width:${n.minW}px">
+          html += `<div class="hfunnel-node">
             <div class="hfunnel-card" style="background:linear-gradient(135deg, #4F7DF5${n.opacity}, #3B63D1${n.opacity})">
               <span class="hfunnel-label">${n.label}</span>
               <span class="hfunnel-value">${n.value}<span class="hfunnel-unit">${n.unit}</span></span>

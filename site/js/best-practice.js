@@ -463,12 +463,12 @@ function openLayer3(catKey, activityId, brandId) {
             <span class="fl-text">领取人数 = ${fmtNum(claimUv)}人</span>
           </div>
           <div class="funnel-transition">
-            <span class="ft-label">领取到店率<sup class="est-tag" title="因活动维度到店核销数据缺失，暂按照品牌维度到店核销倒推">*预估</sup></span>
+            <span class="ft-label">领取到店率 *预估</span>
             <span class="ft-conv">${fmtPct(clmToStore)}</span>
             <span class="ft-loss">| 流失率 ${fmtPct(lossRate(clmToStore))}</span>
           </div>
           <div class="funnel-level" style="width:65%;background:${color}AA">
-            <span class="fl-text">到店人数<sup class="est-tag" title="因活动维度到店核销数据缺失，暂按照品牌维度到店核销倒推">*预估</sup> = ${storeVisitUv !== null ? fmtNum(storeVisitUv) : '-'}人</span>
+            <span class="fl-text">到店人数 *预估 = ${storeVisitUv !== null ? fmtNum(storeVisitUv) : '-'}人</span>
           </div>
           <div class="funnel-transition">
             <span class="ft-label">到店核销率</span>

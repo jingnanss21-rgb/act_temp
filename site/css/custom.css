@@ -568,14 +568,15 @@ body {
 
 /* 第一层：指标 Tab */
 .bp-metric-tabs {
-  display: flex; gap: 0; padding: 0 32px; margin-bottom: 0;
+  display: flex; gap: 36px; padding: 0 32px; margin-bottom: 0;
   background: var(--bg-white); border-bottom: 1px solid var(--border);
+  flex-wrap: nowrap; white-space: nowrap;
 }
 .bp-metric-tab {
-  padding: 12px 24px; font-size: 14px; font-weight: 500;
+  padding: 12px 4px; font-size: 14px; font-weight: 500;
   color: var(--text-muted); background: none; border: none;
   border-bottom: 3px solid transparent; cursor: pointer;
-  transition: all 0.2s;
+  transition: all 0.2s; white-space: nowrap;
 }
 .bp-metric-tab:hover { color: var(--primary); }
 .bp-metric-tab.active {
@@ -729,15 +730,15 @@ body {
 .modal-right { flex: 1; padding-left: 24px; display: flex; flex-direction: column; }
 
 /* 漏斗 */
-.funnel-full { display: flex; flex-direction: column; align-items: center; gap: 0; width: 100%; }
+.funnel-full { display: flex; flex-direction: column; align-items: center; gap: 0; width: 100%; max-width: 380px; margin: 0 auto; }
 .funnel-level {
   color: #fff; padding: 16px 20px; text-align: center;
-  border-radius: 8px; min-width: 180px;
+  border-radius: 8px; min-width: 180px; margin: 0 auto;
   box-shadow: 0 2px 4px rgba(37,99,235,0.15);
 }
 .fl-text { font-size: 15px; font-weight: 600; white-space: nowrap; }
 .funnel-transition {
-  padding: 4px 0; font-size: 12px; width: 100%;
+  padding: 4px 0; font-size: 12px; width: 100%; text-align: center;
   position: relative;
 }
 .ft-grad-defs { position: absolute; width: 0; height: 0; overflow: hidden; }
@@ -1006,6 +1007,7 @@ body {
   overflow: visible;
 }
 .hfunnel-node {
+  flex: 1 1 0%;
   min-width: 0;
   overflow: visible;
 }
@@ -1028,21 +1030,21 @@ body {
   white-space: nowrap;
 }
 .hfunnel-value {
-  font-size: 22px;
+  font-size: clamp(16px, 2vw, 22px);
   font-weight: 800;
   font-variant-numeric: tabular-nums;
   line-height: 1.2;
   white-space: nowrap;
 }
 .hfunnel-unit {
-  font-size: 13px;
+  font-size: clamp(11px, 1.2vw, 13px);
   font-weight: 500;
   margin-left: 2px;
 }
 .hfunnel-arrow {
-  flex-shrink: 0;
-  min-width: 90px;
-  width: 90px;
+  flex: 0 0 auto;
+  min-width: 70px;
+  max-width: 90px;
   display: flex;
   flex-direction: column;
   align-items: center;
