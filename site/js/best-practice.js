@@ -28,7 +28,7 @@ function isAnomalyActivity(item) {
   return item.exposure_claim_rate > RATE_CAPS.exposure_claim ||
     item.claim_redeem_rate > RATE_CAPS.claim_redeem ||
     item.exposure_redeem_rate > RATE_CAPS.exposure_redeem ||
-    item.store_redeem_rate > RATE_CAPS.store_redeem;
+    item.store_redeem_rate >= RATE_CAPS.store_redeem;
 }
 
 function isCategoryAllowed(catL4) {
@@ -136,6 +136,7 @@ async function loadBestPracticeData() {
         claim_redeem_rate: cUv > 0 ? rUv / cUv : 0,
         exposure_redeem_rate: eUv > 0 ? rUv / eUv : 0,
         store_redeem_rate: storeRate,
+        claim_to_store_rate: (storeVisitUv !== null && cUv > 0) ? storeVisitUv / cUv : NaN,
         // 品牌级信息
         brand_store_redeem_rate: storeRate,
         brand_w7_avg_store_redeem: brand?.w7_avg_store_redeem,
@@ -164,6 +165,9 @@ async function loadBestPracticeData() {
           .sort((a, b) => b[mk.calcField] - a[mk.calcField]);
         bestPracticeData[catKey][mk.key] = sorted.slice(0, 3);
       }
+      // 领取到店率中位数（预估）
+      const ctsVals = normalItems.map(i => i.claim_to_store_rate).filter(v => !isNaN(v) && v > 0);
+      catMedians[catKey].claim_to_store = median(ctsVals);
     }
 
     renderLayer1();
@@ -386,9 +390,11 @@ function openLayer3(catKey, activityId, brandId) {
 
   // 转化率
   const expClm = item.exposure_claim_rate;
-  const clmStore = (storeVisitUv && claimUv > 0) ? storeVisitUv / claimUv : NaN;
+  const clmRdm = item.claim_redeem_rate;
   const storeRdm = item.store_redeem_rate;
   const expRdm = item.exposure_redeem_rate;
+  // 领取到店率 = 到店人数 / 领取人数（预估）
+  const clmToStore = (storeVisitUv !== null && claimUv > 0) ? storeVisitUv / claimUv : NaN;
 
   // 流失率
   function lossRate(conv) { return isNaN(conv) ? NaN : 1 - conv; }
@@ -427,6 +433,7 @@ function openLayer3(catKey, activityId, brandId) {
             <span class="fl-text">曝光人数 = ${fmtNum(exposureUv)}人</span>
           </div>
           <div class="funnel-transition">
+            <span class="ft-label">曝光领取率</span>
             <span class="ft-conv">转化率 ${fmtPct(expClm)}</span>
             <span class="ft-loss">| 流失率 ${fmtPct(lossRate(expClm))}</span>
           </div>
@@ -434,13 +441,15 @@ function openLayer3(catKey, activityId, brandId) {
             <span class="fl-text">领取人数 = ${fmtNum(claimUv)}人</span>
           </div>
           <div class="funnel-transition">
-            <span class="ft-conv">转化率 ${fmtPct(clmStore)}</span>
-            <span class="ft-loss">| 流失率 ${fmtPct(lossRate(clmStore))}</span>
+            <span class="ft-label">领取到店率 *预估</span>
+            <span class="ft-conv">转化率 ${fmtPct(clmToStore)}</span>
+            <span class="ft-loss">| 流失率 ${fmtPct(lossRate(clmToStore))}</span>
           </div>
           <div class="funnel-level" style="width:60%;background:${color}AA">
             <span class="fl-text">到店人数 = ${storeVisitUv !== null ? fmtNum(storeVisitUv) + '人 *预估' : '-'}</span>
           </div>
           <div class="funnel-transition">
+            <span class="ft-label">到店核销率</span>
             <span class="ft-conv">转化率 ${fmtPct(storeRdm)}</span>
             <span class="ft-loss">| 流失率 ${fmtPct(lossRate(storeRdm))}</span>
           </div>
@@ -455,10 +464,9 @@ function openLayer3(catKey, activityId, brandId) {
           <thead><tr><th></th><th>本活动</th><th>${catKey}均值</th><th></th></tr></thead>
           <tbody>
             ${comparisonRow('曝光领取率', expClm, meds.exposure_claim)}
-            ${comparisonRow('领取到店率', clmStore, NaN)}
+            ${comparisonRow('领取到店率 *预估', clmToStore, meds.claim_to_store)}
             ${comparisonRow('到店核销率', storeRdm, meds.store_redeem)}
-            ${comparisonRow('曝光核销率', expRdm, meds.exposure_redeem)}
-            ${comparisonRow('全链路转化', expRdm, meds.exposure_redeem)}
+            ${comparisonRow('全链路转化率<br>(曝光核销率)', expRdm, meds.exposure_redeem)}
           </tbody>
         </table>
         <div class="cmp-note">数据更新时间：${latestByBrand[item.brand_id]?.report_date || '-'}</div>
