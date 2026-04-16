@@ -15,12 +15,14 @@ const DETAIL_RATE_CAPS = {
   exposure_claim: 0.40,   // 曝光领取率 40%
   claim_redeem: 0.40,     // 领取核销率 40%
   exposure_redeem: 0.10,  // 曝光核销率 10%
+  store_redeem: 1.00,     // 到店核销率 100%
 };
 
 function isRateAnomaly(field, value) {
   if (field === 'exposure_claim' && value > DETAIL_RATE_CAPS.exposure_claim) return true;
   if (field === 'claim_redeem' && value > DETAIL_RATE_CAPS.claim_redeem) return true;
   if (field === 'exposure_redeem' && value > DETAIL_RATE_CAPS.exposure_redeem) return true;
+  if (field === 'store_redeem' && value > DETAIL_RATE_CAPS.store_redeem) return true;
   return false;
 }
 
@@ -329,7 +331,8 @@ function renderDetailTable() {
       isRateAnomaly('exposure_redeem', row.uv_exposure_redeem) ||
       isRateAnomaly('exposure_claim', row.pv_exposure_claim) ||
       isRateAnomaly('claim_redeem', row.pv_claim_redeem) ||
-      isRateAnomaly('exposure_redeem', row.pv_exposure_redeem);
+      isRateAnomaly('exposure_redeem', row.pv_exposure_redeem) ||
+      isRateAnomaly('store_redeem', parseFloat(row.w7_store_redeem_rate_uv) || 0);
 
     const rowClass = hasAnomaly ? ' class="anomaly-row"' : '';
     html += `<tr${rowClass}>
@@ -356,7 +359,7 @@ function renderDetailTable() {
       <td class="${rateClass(row.pv_exposure_claim)}">${fmtRateWithAnomaly(row.pv_exposure_claim, 'exposure_claim')}</td>
       <td class="${rateClass(row.pv_claim_redeem)}">${fmtRateWithAnomaly(row.pv_claim_redeem, 'claim_redeem')}</td>
       <td class="${rateClass(row.pv_exposure_redeem)}">${fmtRateWithAnomaly(row.pv_exposure_redeem, 'exposure_redeem')}</td>
-      <td class="${rateClass(row.w7_store_redeem_rate_uv)}">${fmtRate(row.w7_store_redeem_rate_uv)}</td>
+      <td class="${rateClass(row.w7_store_redeem_rate_uv)}">${fmtRateWithAnomaly(parseFloat(row.w7_store_redeem_rate_uv) || 0, 'store_redeem')}</td>
     </tr>`;
   }
   tbody.innerHTML = html || '<tr><td colspan="24" style="text-align:center;padding:32px;color:var(--text-muted)">暂无数据</td></tr>';

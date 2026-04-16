@@ -10,13 +10,15 @@ const RATE_CAPS = {
   exposure_claim: 0.40,
   claim_redeem: 0.40,
   exposure_redeem: 0.10,
+  store_redeem: 1.00,
 };
 
 function isAnomalyActivity(item) {
   return (
     item.exposure_claim_rate > RATE_CAPS.exposure_claim ||
     item.claim_redeem_rate > RATE_CAPS.claim_redeem ||
-    item.exposure_redeem_rate > RATE_CAPS.exposure_redeem
+    item.exposure_redeem_rate > RATE_CAPS.exposure_redeem ||
+    item.store_redeem_rate > RATE_CAPS.store_redeem
   );
 }
 
@@ -166,27 +168,30 @@ function renderBestPracticeCards() {
         <div class="card-header">
           <input type="checkbox" class="custom-check cat-check" data-cat="${cat}" ${checked} onchange="toggleCategory('${cat}', this.checked)">
           <span class="card-title">${cat}</span>
-        </div>`;
+        </div>
+        <div class="metric-columns">`;
 
       for (const metric of METRICS) {
         const top3 = bestPracticeData[cat][metric.key] || [];
-        html += `<div class="metric-block">
-          <span class="metric-label">${metric.label}</span>`;
+        html += `<div class="metric-col">
+          <div class="metric-col-header">${metric.label}</div>`;
         for (const item of top3) {
           const rateStr = (item.rate * 100).toFixed(1) + '%';
           html += `<div class="top-item">
             <span class="rank-badge rank-${item.rank}">${item.rank}</span>
-            <span class="brand-name">${item.brand_name}</span>
-            <span class="act-name" title="${item.activity_name}">${item.activity_name}</span>
+            <div class="top-item-info">
+              <span class="brand-name">${item.brand_name}</span>
+              <span class="act-name" title="${item.activity_name}">${item.activity_name}</span>
+            </div>
             <span class="rate-value">${rateStr}</span>
           </div>`;
         }
         if (top3.length === 0) {
-          html += '<div class="top-item" style="color:var(--text-muted)">暂无数据</div>';
+          html += '<div class="top-item" style="color:var(--text-muted);font-size:12px">暂无数据</div>';
         }
         html += '</div>';
       }
-      html += '</div>';
+      html += '</div></div>';
     }
   }
   container.innerHTML = html;
