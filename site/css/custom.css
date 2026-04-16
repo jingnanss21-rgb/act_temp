@@ -509,61 +509,191 @@ body {
 .anomaly-row:hover { background: rgba(239, 68, 68, 0.06) !important; }
 .anomaly-value { color: #DC2626; font-weight: 600; }
 
-/* 统一视图 - 分指标 Top3 表格 */
-.unified-metric-section {
-  background: var(--bg-white);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  margin: 16px 32px;
-  overflow: hidden;
+/* ============================================================
+   三层交互 - 业态最佳实践
+   ============================================================ */
+
+/* 第一层：指标 Tab */
+.bp-metric-tabs {
+  display: flex; gap: 0; padding: 0 32px; margin-bottom: 0;
+  background: var(--bg-white); border-bottom: 1px solid var(--border);
 }
-.metric-section-header {
-  font-size: 15px;
-  font-weight: 700;
-  color: var(--primary);
+.bp-metric-tab {
+  padding: 12px 24px; font-size: 14px; font-weight: 500;
+  color: var(--text-muted); background: none; border: none;
+  border-bottom: 3px solid transparent; cursor: pointer;
+  transition: all 0.2s;
+}
+.bp-metric-tab:hover { color: var(--primary); }
+.bp-metric-tab.active {
+  color: var(--primary); border-bottom-color: var(--primary); font-weight: 700;
   background: #EFF6FF;
-  padding: 10px 20px;
-  border-bottom: 1px solid #DBEAFE;
 }
-.metric-table {
-  width: 100%;
-  border-collapse: separate;
-  border-spacing: 0;
-  font-size: 13px;
+
+/* 第一层：卡片网格 */
+.bp-card-grid {
+  display: grid; grid-template-columns: repeat(3, 1fr);
+  gap: 20px; padding: 24px 32px;
 }
-.metric-table thead th {
-  background: #F8FAFC;
-  color: var(--text-muted);
-  padding: 8px 14px;
-  font-weight: 500;
-  font-size: 12px;
-  border-bottom: 1px solid var(--border);
-  text-align: left;
+.bp-card {
+  background: var(--bg-white); border: 1px solid var(--border);
+  border-radius: 14px; padding: 20px; cursor: pointer;
+  transition: all 0.25s ease; position: relative;
 }
-.metric-table tbody td {
-  padding: 7px 14px;
-  border-bottom: 1px solid #F1F5F9;
+.bp-card:hover { box-shadow: 0 8px 24px rgba(0,0,0,0.08); transform: translateY(-2px); }
+.bp-card-head { display: flex; align-items: center; gap: 8px; margin-bottom: 14px; }
+.bp-card-emoji { font-size: 24px; }
+.bp-card-cat { font-size: 16px; font-weight: 700; }
+.bp-card-top1 { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 16px; }
+.bp-card-top1-info { flex: 1; min-width: 0; }
+.bp-top1-label { font-size: 13px; font-weight: 600; color: var(--text-dark); margin-bottom: 2px; }
+.bp-top1-act { font-size: 12px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 160px; }
+.bp-card-top1-rate { text-align: right; flex-shrink: 0; }
+.bp-rate-label { font-size: 11px; color: var(--text-muted); }
+.bp-rate-value { font-size: 28px; font-weight: 800; line-height: 1.1; }
+
+/* 迷你柱状图 */
+.bp-card-bars { margin-bottom: 12px; }
+.bp-bar-row { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; font-size: 12px; }
+.bp-bar-rank { width: 32px; color: var(--text-muted); font-size: 11px; flex-shrink: 0; }
+.bp-bar-track { flex: 1; height: 8px; background: #F1F5F9; border-radius: 4px; overflow: hidden; }
+.bp-bar-fill { height: 100%; border-radius: 4px; transition: width 0.5s ease; }
+.bp-bar-pct { width: 42px; text-align: right; font-weight: 600; color: var(--text-dark); font-size: 12px; flex-shrink: 0; }
+.bp-bar-name { width: 80px; color: var(--text-muted); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex-shrink: 0; }
+.bp-bar-empty { color: var(--text-muted); }
+
+.bp-card-link { font-size: 13px; font-weight: 600; text-align: right; cursor: pointer; }
+.bp-card-link:hover { text-decoration: underline; }
+
+/* 第二层：Overlay + Drawer */
+.bp-overlay {
+  position: fixed; inset: 0; background: rgba(0,0,0,0);
+  z-index: 200; transition: background 0.3s;
 }
-.metric-table tbody tr:hover { background: #F8FAFC; }
-.metric-table .cat-cell {
-  font-weight: 600;
-  color: var(--text-dark);
-  background: #FAFBFC;
-  border-right: 2px solid #E2E8F0;
-  font-size: 13px;
-  vertical-align: top;
+.bp-overlay.show { background: rgba(0,0,0,0.3); }
+
+.bp-drawer {
+  position: fixed; top: 0; right: -440px; bottom: 0; width: 440px;
+  background: var(--bg-white); z-index: 201; overflow-y: auto;
+  box-shadow: -4px 0 20px rgba(0,0,0,0.1); transition: right 0.3s ease;
 }
-.metric-table .rank-cell { text-align: center; }
-.metric-table .brand-cell { font-weight: 500; }
-.metric-table .act-cell {
-  max-width: 220px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--text-muted);
+.bp-drawer.show { right: 0; }
+
+.drawer-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 20px 24px; border-bottom: 1px solid var(--border);
 }
-.metric-table .rate-cell {
-  text-align: right;
-  font-weight: 700;
-  color: var(--primary);
+.drawer-title { font-size: 18px; font-weight: 700; color: var(--text-dark); }
+.drawer-close {
+  width: 32px; height: 32px; border: none; background: #F1F5F9;
+  border-radius: 50%; font-size: 16px; cursor: pointer; display: flex;
+  align-items: center; justify-content: center; color: var(--text-muted);
 }
+.drawer-close:hover { background: #E2E8F0; }
+
+.drawer-tabs { display: flex; gap: 0; border-bottom: 1px solid var(--border); }
+.drawer-tab {
+  padding: 10px 16px; font-size: 13px; font-weight: 500;
+  color: var(--text-muted); background: none; border: none;
+  border-bottom: 2px solid transparent; cursor: pointer;
+}
+.drawer-tab.active { font-weight: 700; }
+
+.drawer-body { padding: 16px 24px; }
+
+.drawer-card {
+  background: #FAFBFC; border: 1px solid var(--border); border-radius: 12px;
+  padding: 16px; margin-bottom: 14px; cursor: pointer; transition: all 0.2s;
+}
+.drawer-card:hover { box-shadow: 0 4px 12px rgba(0,0,0,0.06); border-color: var(--primary-light); }
+
+.drawer-card-head { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+.drawer-medal { font-size: 24px; }
+.drawer-card-info { flex: 1; min-width: 0; }
+.drawer-brand { font-size: 15px; font-weight: 700; color: var(--text-dark); }
+.drawer-act { font-size: 12px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.drawer-metrics {
+  display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; margin-bottom: 12px;
+}
+.drawer-metric-item {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 4px 8px; border-radius: 6px; font-size: 12px;
+}
+.drawer-metric-item.active { background: #EFF6FF; }
+.dm-label { color: var(--text-muted); }
+.dm-value { font-weight: 500; color: var(--text-dark); }
+
+.drawer-funnel-mini {
+  display: flex; align-items: center; gap: 4px;
+  background: #F1F5F9; border-radius: 8px; padding: 8px 12px;
+}
+.funnel-step { text-align: center; flex: 1; }
+.funnel-label { display: block; font-size: 10px; color: var(--text-muted); }
+.funnel-num { display: block; font-size: 13px; font-weight: 600; color: var(--text-dark); }
+.funnel-arrow { color: var(--text-muted); font-size: 14px; flex-shrink: 0; }
+
+/* 第三层：模态弹窗 */
+.bp-modal {
+  position: fixed; inset: 0; z-index: 300;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(0,0,0,0); transition: background 0.3s;
+}
+.bp-modal.show { background: rgba(0,0,0,0.5); }
+
+.bp-modal-content {
+  background: var(--bg-white); border-radius: 16px; width: 90%; max-width: 900px;
+  max-height: 85vh; overflow-y: auto; box-shadow: 0 20px 60px rgba(0,0,0,0.2);
+  transform: scale(0.95); opacity: 0; transition: all 0.3s;
+}
+.bp-modal.show .bp-modal-content { transform: scale(1); opacity: 1; }
+
+.modal-header {
+  display: flex; justify-content: space-between; align-items: flex-start;
+  padding: 24px 28px 16px; border-bottom: 1px solid var(--border);
+}
+.modal-title { font-size: 20px; font-weight: 700; color: var(--text-dark); margin-bottom: 4px; }
+.modal-subtitle { font-size: 13px; color: var(--text-muted); }
+.modal-close {
+  width: 36px; height: 36px; border: none; background: #F1F5F9;
+  border-radius: 50%; font-size: 18px; cursor: pointer; display: flex;
+  align-items: center; justify-content: center; color: var(--text-muted); flex-shrink: 0;
+}
+.modal-close:hover { background: #E2E8F0; }
+
+.modal-body { display: flex; gap: 0; padding: 24px 28px; }
+.modal-left { flex: 1; padding-right: 24px; border-right: 1px solid var(--border); }
+.modal-right { flex: 1; padding-left: 24px; }
+
+/* 漏斗 */
+.funnel-full { display: flex; flex-direction: column; align-items: center; gap: 0; }
+.funnel-level {
+  color: #fff; padding: 14px 20px; text-align: center;
+  border-radius: 6px; margin: 0 auto; min-width: 120px;
+}
+.fl-text { font-size: 14px; font-weight: 600; }
+.funnel-transition {
+  text-align: center; padding: 6px 0; font-size: 12px;
+}
+.ft-conv { color: var(--text-dark); font-weight: 500; }
+.ft-loss { color: var(--text-muted); }
+
+/* 对比表 */
+.cmp-title { font-size: 16px; font-weight: 700; color: var(--text-dark); margin-bottom: 16px; }
+.cmp-table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 13px; }
+.cmp-table thead th {
+  padding: 8px 12px; font-weight: 500; color: var(--text-muted);
+  border-bottom: 1px solid var(--border); font-size: 12px;
+}
+.cmp-table tbody td { padding: 10px 12px; border-bottom: 1px solid #F1F5F9; }
+.cmp-label { font-weight: 500; color: var(--text-dark); }
+.cmp-val { font-weight: 700; font-size: 15px; }
+.cmp-med { color: var(--text-muted); }
+.cmp-good { color: var(--success); }
+.cmp-bad { color: var(--danger); }
+.cmp-diff { font-size: 11px; }
+.cmp-note { margin-top: 16px; font-size: 12px; color: var(--text-muted); text-align: center; }
+
+/* 响应式：小屏两列 */
+@media (max-width: 1024px) { .bp-card-grid { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 640px) { .bp-card-grid { grid-template-columns: 1fr; } .modal-body { flex-direction: column; } .modal-left { border-right: none; padding-right: 0; border-bottom: 1px solid var(--border); padding-bottom: 20px; } .modal-right { padding-left: 0; padding-top: 20px; } }
