@@ -322,49 +322,84 @@ function renderDiagResult() {
       </div>
     </div>
 
-    <!-- 区域 B: 雷达图 + 指标表 -->
+    <!-- 区域 B: 品牌转化漏斗 + 对比表 -->
     <div class="diag-card diag-area-b" style="animation:fadeInUp 0.5s ease">
-      <!-- FIX: Bug #3 - 副标题缩短避免截断 -->
-      <h3 class="diag-section-title">📊 四维转化诊断 <span style="font-size:12px;color:#8C8C8C;font-weight:400;white-space:nowrap">品牌 vs 中位 vs 最佳</span></h3>
-      <div class="diag-b-content">
-        <div class="diag-radar-wrap" id="diag-radar-wrap"></div>
-        <div class="diag-metric-table">
-          <div class="dmt-header">
-            <span class="dmt-h-num">#</span>
-            <span class="dmt-h-label">指标</span>
-            <span class="dmt-h-val">品牌</span>
-            <span class="dmt-h-val">中位数</span>
-            <span class="dmt-h-val">最佳</span>
-            <span class="dmt-h-status">状态</span>
-            <span class="dmt-h-bar">进度</span>
-          </div>
-          ${DIAG_METRICS.map((mk, i) => {
-            const val = b.metrics[mk.key];
-            const med = meds[mk.key] || 0;
-            const bestVal = best[mk.key] || 0;
-            const isBetter = val >= med;
-            const isSelected = mk.key === diagSelectedMetric;
-            const diffPct = med > 0 ? Math.round(Math.abs(val - med) / med * 100) : 0;
-            // FIX: Bug #4 - 进度条宽度 = 品牌值/最佳值（确保最佳值 >= 品牌值）
-            const barMax = Math.max(bestVal, val, 0.001);
-            const barPct = Math.min((val / barMax) * 100, 100);
-            return `<div class="diag-metric-row ${isSelected ? 'selected' : ''} ${!isBetter ? 'weak' : ''}"
-              onclick="switchDiagMetric('${mk.key}')">
-              <div class="dmr-num">${i + 1}</div>
-              <div class="dmr-label">${mk.label}</div>
-              <div class="dmr-brand">${fmtPctDiag(val)}</div>
-              <div class="dmr-med">${fmtPctDiag(med)}</div>
-              <div class="dmr-best" style="color:#D97706">${fmtPctDiag(bestVal)}</div>
-              <div class="dmr-status ${isBetter ? 'good' : 'bad'}">
-                ${isBetter ? '✅ 高于中位' : `⚠️ <span style="color:#DC2626">低于中位 ${diffPct}%</span>`}
+      <h3 class="diag-section-title">📊 品牌转化漏斗</h3>
+      <div style="display:flex;gap:24px;align-items:flex-start">
+        <div style="flex:1;min-width:0">
+          ${(() => {
+            const color = '#2563EB';
+            const exposureUv = b.totals.exposure_pv;
+            const claimUv = b.totals.claim_pv;
+            const redeemUv = b.totals.redeem_pv;
+            const storeRdmRate = b.metrics.store_redeem;
+            const storeVisit = (storeRdmRate > 0) ? Math.round(redeemUv / storeRdmRate) : null;
+            const clmToStore = (storeVisit && claimUv > 0) ? storeVisit / claimUv : NaN;
+            const expClm = claimUv / Math.max(exposureUv, 1);
+            const storeRdm = storeRdmRate;
+            const expRdm = redeemUv / Math.max(exposureUv, 1);
+            const lossRate = (r) => isNaN(r) ? NaN : 1 - r;
+            const fp = (v) => isNaN(v) ? '-' : (v * 100).toFixed(1) + '%';
+
+            return `<div class="funnel-full" style="max-width:380px">
+              <div class="funnel-level" style="width:100%;background:${color}">
+                <span class="fl-text">曝光人数 = ${fmtNum(exposureUv)}人</span>
               </div>
-              <div class="dmr-bar">
-                <div class="dmr-bar-fill" style="width:${barPct}%;background:${isBetter ? '#2563EB' : '#DC2626'}"></div>
-                <div class="dmr-bar-max-line" style="left:100%" title="最佳 ${fmtPctDiag(bestVal)}"></div>
+              <div class="funnel-transition">
+                <span class="ft-label">曝光领取率</span>
+                <span class="ft-conv">${fp(expClm)}</span>
+                <span class="ft-loss">| 流失率 ${fp(lossRate(expClm))}</span>
+              </div>
+              <div class="funnel-level" style="width:85%;background:${color}CC">
+                <span class="fl-text">领取人数 = ${fmtNum(claimUv)}人</span>
+              </div>
+              <div class="funnel-transition">
+                <span class="ft-label">领取到店率<sup class="est-tag">*预估</sup></span>
+                <span class="ft-conv">${fp(clmToStore)}</span>
+                <span class="ft-loss">| 流失率 ${fp(lossRate(clmToStore))}</span>
+              </div>
+              <div class="funnel-level" style="width:65%;background:${color}AA">
+                <span class="fl-text">到店人数<sup class="est-tag">*预估</sup> = ${storeVisit !== null ? fmtNum(storeVisit) : '-'}人</span>
+              </div>
+              <div class="funnel-transition">
+                <span class="ft-label">到店核销率</span>
+                <span class="ft-conv">${fp(storeRdm)}</span>
+                <span class="ft-loss">| 流失率 ${fp(lossRate(storeRdm))}</span>
+              </div>
+              <div class="funnel-level" style="width:45%;background:${color}88">
+                <span class="fl-text">核销人数 = ${fmtNum(redeemUv)}人</span>
               </div>
             </div>`;
-          }).join('')}
-          <div style="font-size:11px;color:#8C8C8C;margin-top:8px;text-align:right;cursor:pointer" onclick="document.getElementById('diag-area-c').scrollIntoView({behavior:'smooth',block:'center'})">点击指标行查看行业标杆详情 ↓</div>
+          })()}
+        </div>
+        <div style="flex:1;min-width:0">
+          <div style="font-weight:600;font-size:15px;margin-bottom:12px">对比业态均值</div>
+          <div style="font-size:11px;color:#8C8C8C;margin-bottom:6px">🔄 过程指标（漏斗转化链路）</div>
+          <table style="width:100%;border-collapse:collapse;font-size:13px">
+            <thead><tr style="border-bottom:2px solid #E2E8F0">
+              <th style="text-align:left;padding:6px 4px;color:#64748B;font-weight:500"></th>
+              <th style="text-align:center;padding:6px 4px;color:#64748B;font-weight:500">本品牌</th>
+              <th style="text-align:center;padding:6px 4px;color:#64748B;font-weight:500">${b.category}均值</th>
+              <th style="text-align:center;padding:6px 4px"></th>
+            </tr></thead>
+            <tbody>
+            ${DIAG_METRICS.map(mk => {
+              const val = b.metrics[mk.key];
+              const med = meds[mk.key] || 0;
+              const isBetter = val >= med;
+              const diffClass = isBetter ? 'color:#16A34A' : 'color:#DC2626';
+              const diffIcon = isBetter ? '↑ 优于均值' : '↓ 低于均值';
+              const isSelected = mk.key === diagSelectedMetric;
+              return `<tr style="border-bottom:1px solid #F1F5F9;cursor:pointer;${isSelected?'background:#EFF6FF':''};${!isBetter?'background:#FFF5F5':''}" onclick="switchDiagMetric('${mk.key}')">
+                <td style="padding:8px 4px;font-weight:500">${mk.label}</td>
+                <td style="text-align:center;padding:8px 4px;font-weight:600;${diffClass}">${fmtPctDiag(val)}</td>
+                <td style="text-align:center;padding:8px 4px;color:#8C8C8C">${fmtPctDiag(med)}</td>
+                <td style="text-align:center;padding:8px 4px;font-size:12px;${diffClass}">${(!isNaN(val) && !isNaN(med)) ? diffIcon : '-'}</td>
+              </tr>`;
+            }).join('')}
+            </tbody>
+          </table>
+          <div style="font-size:11px;color:#8C8C8C;margin-top:10px;text-align:right;cursor:pointer" onclick="document.getElementById('diag-area-c').scrollIntoView({behavior:'smooth',block:'center'})">点击指标行查看行业标杆详情 ↓</div>
         </div>
       </div>
     </div>
@@ -385,7 +420,6 @@ function renderDiagResult() {
   `;
 
   renderScoreRing(totalScore, scoreColor, scoreLabel);
-  renderDiagRadar();
   renderBenchmark();
 }
 
