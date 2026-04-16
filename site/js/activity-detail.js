@@ -308,7 +308,7 @@ function showBrandDropdown(query) {
 
   dd.innerHTML = matches.map(m =>
     `<div class="search-dd-item" onclick="selectBrandSearch('${m.id}','${(m.name||'').replace(/'/g,"\\'")}')">
-      <span style="color:#8C8C8C;font-size:11px">${m.id}</span> ${m.name}
+      <span style="color:#94A3B8;font-size:11px;margin-right:6px">${m.id}</span><span style="font-size:14px;font-weight:500;color:#1E293B">${m.name}</span>
     </div>`
   ).join('');
   dd.style.display = 'block';
