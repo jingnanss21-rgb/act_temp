@@ -295,11 +295,23 @@ function renderDiagResult() {
       <div class="diag-a-left">
         <div class="diag-brand-name">${b.brand_name} <span class="diag-cat-tag" style="background:${getCatColor(cat)}20;color:${getCatColor(cat)}">${cat}</span></div>
         <div class="diag-date">数据日期：${b.brand_daily.report_date}</div>
-        <div class="diag-summary-grid">
-          <div class="diag-summary-item"><div class="ds-label">活动数</div><div class="ds-value">${b.activities.length}</div></div>
-          <div class="diag-summary-item"><div class="ds-label">曝光</div><div class="ds-value">${fmtNum(b.totals.exposure_pv)}</div></div>
-          <div class="diag-summary-item"><div class="ds-label">领取</div><div class="ds-value">${fmtNum(b.totals.claim_pv)}</div></div>
-          <div class="diag-summary-item"><div class="ds-label">核销</div><div class="ds-value">${fmtNum(b.totals.redeem_pv)}</div></div>
+        <div style="display:flex;gap:10px;margin-top:12px">
+          <div style="flex:1;background:#F8FAFC;border:1px solid #E2E8F0;border-radius:8px;padding:10px 14px;text-align:center">
+            <div style="font-size:11px;color:#94A3B8;margin-bottom:2px">活动数</div>
+            <div style="font-size:20px;font-weight:700;color:#1E293B">${b.activities.length}</div>
+          </div>
+          <div style="flex:1;background:#EFF6FF;border:1px solid #DBEAFE;border-radius:8px;padding:10px 14px;text-align:center">
+            <div style="font-size:11px;color:#94A3B8;margin-bottom:2px">曝光</div>
+            <div style="font-size:20px;font-weight:700;color:#1E293B">${fmtNum(b.totals.exposure_pv)}</div>
+          </div>
+          <div style="flex:1;background:#F0FDF4;border:1px solid #DCFCE7;border-radius:8px;padding:10px 14px;text-align:center">
+            <div style="font-size:11px;color:#94A3B8;margin-bottom:2px">领取</div>
+            <div style="font-size:20px;font-weight:700;color:#1E293B">${fmtNum(b.totals.claim_pv)}</div>
+          </div>
+          <div style="flex:1;background:#FFF7ED;border:1px solid #FED7AA;border-radius:8px;padding:10px 14px;text-align:center">
+            <div style="font-size:11px;color:#94A3B8;margin-bottom:2px">核销</div>
+            <div style="font-size:20px;font-weight:700;color:#1E293B">${fmtNum(b.totals.redeem_pv)}</div>
+          </div>
         </div>
         ${weakMetrics.length > 0 ? `<div class="diag-alert" style="background:${scoreColor}10;border-left:3px solid ${scoreColor};color:${scoreColor}">
           ⚠️ ${weakMetrics.length} 项指标低于行业中位数，建议重点关注${worstMetric.label}
@@ -542,13 +554,11 @@ function renderBenchmark() {
       ${top3.map((t, i) => {
         const medals = ['🥇', '🥈', '🥉'];
         const medalColors = ['#D97706', '#9CA3AF', '#B45309'];
-        const duration = (t.start_date && t.end_date) ? Math.max(1, Math.round((parseInt(t.end_date) - parseInt(t.start_date)))) : '-';
         return `<div class="diag-top3-card" onmouseenter="this.style.borderLeftColor='#2563EB'" onmouseleave="this.style.borderLeftColor='transparent'">
           <div class="dt3-header">
             <span class="dt3-medal" style="color:${medalColors[i]}">${medals[i]}</span>
             <div class="dt3-info">
               <div class="dt3-brand">${t.brand_name} — ${t.activity_name}</div>
-              <div class="dt3-meta">活动时长: ${duration}天</div>
             </div>
             <div class="dt3-value">${fmtPctDiag(t[mk.key])}</div>
           </div>
@@ -573,15 +583,6 @@ function generateInsights(top3, mk, cat) {
   if (top3.length === 0) return '<li>暂无足够数据生成洞察</li>';
 
   const items = [];
-  // 活动时长分析
-  const durations = top3.map(t => {
-    if (t.start_date && t.end_date) return Math.max(1, Math.round(parseInt(t.end_date) - parseInt(t.start_date)));
-    return null;
-  }).filter(d => d !== null);
-  if (durations.length > 0) {
-    const avgDur = Math.round(durations.reduce((s, d) => s + d, 0) / durations.length);
-    items.push(`Top3 活动平均时长约 <b>${avgDur} 天</b>，${avgDur <= 14 ? '短周期活动有助于制造紧迫感，促进快速转化' : '长周期活动有助于持续曝光和用户触达'}`);
-  }
 
   // 转化率特征
   if (mk.key === 'exposure_claim') {
@@ -632,39 +633,42 @@ function renderDiagActivities() {
     const crr = a.claim_pv > 0 ? a.redeem_pv / a.claim_pv : 0;
     const err = a.exposure_pv > 0 ? a.redeem_pv / a.exposure_pv : 0;
 
-    // FIX: Bug #7 - 进度条颜色区分高于/低于中位
-    function progressBar(label, val, med) {
-      const barMax = Math.max(med * 2, val * 1.2, 0.01);
-      const pct = Math.min((val / barMax) * 100, 100);
-      const medPct = Math.min((med / barMax) * 100, 100);
-      const color = val >= med ? '#2563EB' : '#DC2626';
-      return `<div class="da-metric">
-        <div class="da-m-header"><span class="da-m-label">${label}</span><span class="da-m-val" style="color:${color}">${fmtPctDiag(val)}</span></div>
-        <div class="da-m-bar"><div class="da-m-fill" style="width:${pct}%;background:${color}"></div>
-          <div class="da-m-med-line" style="left:${medPct}%" title="中位数 ${fmtPctDiag(med)}"></div>
+    // 转化率 vs 中位数 对比行
+    function rateRow(label, val, med) {
+      const color = val >= med ? '#16A34A' : '#DC2626';
+      const icon = val >= med ? '↑' : '↓';
+      const diff = med > 0 ? Math.abs(((val - med) / med) * 100).toFixed(0) : '-';
+      const tag = val >= med ? `<span style="color:#16A34A;font-size:11px">${icon} 高于中位 ${diff}%</span>` : `<span style="color:#DC2626;font-size:11px">${icon} 低于中位 ${diff}%</span>`;
+      return `<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid #F1F5F9">
+        <span style="font-size:13px;color:#64748B">${label}</span>
+        <div style="display:flex;align-items:center;gap:12px">
+          <span style="font-size:14px;font-weight:600;color:${color}">${fmtPctDiag(val)}</span>
+          <span style="font-size:11px;color:#94A3B8">中位 ${fmtPctDiag(med)}</span>
+          ${tag}
         </div>
-        <div class="da-m-ref">中位 ${fmtPctDiag(med)}</div>
       </div>`;
     }
 
-    return `<div class="diag-activity-card">
-      <div class="dac-header">
-        <div class="dac-name">${a.activity_name}</div>
+    return `<div class="diag-activity-card" style="border-radius:12px;border:1px solid #E2E8F0;padding:16px;margin-bottom:12px;background:#fff">
+      <div style="font-size:15px;font-weight:600;color:#1E293B;margin-bottom:12px">${a.activity_name}</div>
+      <div style="display:flex;gap:12px;margin-bottom:14px">
+        <div style="flex:1;background:#EFF6FF;border-radius:8px;padding:10px 14px;text-align:center">
+          <div style="font-size:11px;color:#64748B">曝光</div>
+          <div style="font-size:18px;font-weight:700;color:#1E293B">${fmtNum(a.exposure_pv)}</div>
+        </div>
+        <div style="flex:1;background:#F0FDF4;border-radius:8px;padding:10px 14px;text-align:center">
+          <div style="font-size:11px;color:#64748B">领取</div>
+          <div style="font-size:18px;font-weight:700;color:#1E293B">${fmtNum(a.claim_pv)}</div>
+        </div>
+        <div style="flex:1;background:#FFF7ED;border-radius:8px;padding:10px 14px;text-align:center">
+          <div style="font-size:11px;color:#64748B">核销</div>
+          <div style="font-size:18px;font-weight:700;color:#1E293B">${fmtNum(a.redeem_pv)}</div>
+        </div>
       </div>
-      <!-- FIX: Bug #3 - 改为 stepper 步骤条样式，删除重复行 -->
-      <div class="dac-stepper">
-        <div class="dac-node"><div class="dac-node-label">曝光</div><div class="dac-node-val">${fmtNum(a.exposure_pv)}</div></div>
-        <div class="dac-step-arrow"><div class="dac-step-rate">${fmtPctDiag(ecr)}</div><div class="dac-step-line">→</div></div>
-        <div class="dac-node"><div class="dac-node-label">领取</div><div class="dac-node-val">${fmtNum(a.claim_pv)}</div></div>
-        <div class="dac-step-arrow"><div class="dac-step-rate">${fmtPctDiag(crr)}</div><div class="dac-step-line">→</div></div>
-        <div class="dac-node"><div class="dac-node-label">核销</div><div class="dac-node-val">${fmtNum(a.redeem_pv)}</div></div>
-      </div>
-      <div class="dac-grid">
-        ${progressBar('曝光领取率', ecr, meds.exposure_claim || 0)}
-        ${progressBar('领取核销率', crr, meds.claim_redeem || 0)}
-        ${progressBar('曝光核销率', err, meds.exposure_redeem || 0)}
-        ${progressBar('到店核销率', storeRate, meds.store_redeem || 0)}
-      </div>
+      ${rateRow('曝光领取率', ecr, meds.exposure_claim || 0)}
+      ${rateRow('领取核销率', crr, meds.claim_redeem || 0)}
+      ${rateRow('曝光核销率', err, meds.exposure_redeem || 0)}
+      ${rateRow('到店核销率', storeRate, meds.store_redeem || 0)}
     </div>`;
   }).join('');
 }
