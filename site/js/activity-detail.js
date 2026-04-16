@@ -15,7 +15,7 @@ const DETAIL_RATE_CAPS = {
   exposure_claim: 0.40,   // 曝光领取率 40%
   claim_redeem: 0.80,     // 领取核销率 80%
   exposure_redeem: 0.10,  // 曝光核销率 10%
-  store_redeem: 1.00,     // 到店核销率 100%
+  store_redeem: 100,      // 到店核销率 100%（底表存的是百分比数值如52.86）
 };
 
 function isRateAnomaly(field, value) {

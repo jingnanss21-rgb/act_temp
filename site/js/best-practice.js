@@ -341,13 +341,12 @@ function openLayer2(catKey) {
         const step = funnelSteps[fi];
         const opacity = 1 - fi * 0.15;
         const numStr = step.value ? fmtNum(step.value) : '-';
-        const estLabel = step.est ? '<div class="fg-est-label" title="因活动维度到店核销数据缺失，暂按照品牌维度到店核销倒推">*预估</div>' : '';
+        const estSup = step.est ? '<sup style="font-size:8px;opacity:0.7;margin-left:1px" title="因活动维度到店核销数据缺失，暂按照品牌维度到店核销倒推">*预估</sup>' : '';
         html += `<div class="fg-step" style="flex:1">
-          <div class="fg-bar" style="background:${color};opacity:${opacity}">
+          <div class="fg-bar" style="background:${color};opacity:${opacity};min-height:50px">
             <span class="fg-label">${step.label}</span>
-            <span class="fg-num">${numStr}</span>
+            <span class="fg-num">${numStr}${estSup}</span>
           </div>
-          ${estLabel}
         </div>`;
         if (fi < funnelSteps.length - 1) {
           html += `<div class="fg-arrow">▶</div>`;
@@ -462,12 +461,12 @@ function openLayer3(catKey, activityId, brandId) {
             <span class="fl-text">领取人数 = ${fmtNum(claimUv)}人</span>
           </div>
           <div class="funnel-transition">
-            <span class="ft-label"><span class="est-tag" title="因活动维度到店核销数据缺失，暂按照品牌维度到店核销倒推，即活动预估领取到店人数=活动核销人数/品牌整体到店核销率">领取到店率 <sup class="est-sup">*预估</sup></span></span>
+            <span class="ft-label">领取到店率<sup style="font-size:9px;color:#FAAD14;cursor:help" title="因活动维度到店核销数据缺失，暂按照品牌维度到店核销倒推，即活动预估领取到店人数=活动核销人数/品牌整体到店核销率">*预估</sup></span>
             <span class="ft-conv">${fmtPct(clmToStore)}</span>
             <span class="ft-loss">| 流失率 ${fmtPct(lossRate(clmToStore))}</span>
           </div>
           <div class="funnel-level" style="width:65%;background:${color}AA">
-            <span class="fl-text">到店人数 = ${storeVisitUv !== null ? fmtNum(storeVisitUv) : '-'}人 <sup class="est-sup" title="因活动维度到店核销数据缺失，暂按照品牌维度到店核销倒推">*预估</sup></span>
+            <span class="fl-text">到店人数 = ${storeVisitUv !== null ? fmtNum(storeVisitUv) : '-'}人<sup style="font-size:9px;color:#FAAD14;cursor:help" title="因活动维度到店核销数据缺失，暂按照品牌维度到店核销倒推">*预估</sup></span>
           </div>
           <div class="funnel-transition">
             <span class="ft-label">到店核销率</span>
