@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>活动运营数据看板</title>
+  <link rel="stylesheet" href="css/custom.css">
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+</head>
+<body>
+
+  <!-- Header -->
+  <div class="header">
+    <h1>📊 活动运营数据看板</h1>
+    <div class="meta">
+      <span id="update-time">数据加载中...</span>
+    </div>
+  </div>
+
+  <!-- Tab Bar -->
+  <div class="tab-bar">
+    <div class="tab-item active" data-tab="best-practice" onclick="switchTab('best-practice')">
+      🏆 分类目最佳实践
+    </div>
+    <div class="tab-item" data-tab="activity-detail" onclick="switchTab('activity-detail')">
+      📋 品牌活动明细
+    </div>
+  </div>
+
+  <!-- Tab 1: 分类目最佳实践 -->
+  <div id="best-practice-section" class="tab-content">
+    <div class="action-bar">
+      <label style="display:flex;align-items:center;gap:8px;font-size:14px;color:var(--text-muted);cursor:pointer">
+        <input type="checkbox" class="custom-check" id="select-all-cats" onchange="toggleAllCategories(this.checked)">
+        全选 / 取消
+      </label>
+      <button class="btn-primary" onclick="exportCardsAsImage()">
+        📥 导出图片
+      </button>
+    </div>
+    <div id="best-practice-container" class="card-grid">
+      <div class="loading"><div class="spinner"></div><p>加载数据中...</p></div>
+    </div>
+  </div>
+
+  <!-- Tab 2: 品牌活动明细 -->
+  <div id="detail-section" class="tab-content" style="display:none;">
+    <div class="filter-bar">
+      <label style="font-size:14px;color:var(--text-muted)">类目</label>
+      <select id="category-filter" onchange="filterDetailData()">
+        <option value="">全部类目</option>
+      </select>
+      <label style="font-size:14px;color:var(--text-muted);margin-left:8px">搜索品牌</label>
+      <input type="text" id="brand-search" placeholder="品牌名称或ID" onkeyup="if(event.key==='Enter')filterDetailData()">
+      <button class="btn-primary" onclick="filterDetailData()">搜索</button>
+    </div>
+
+    <div class="detail-table-wrap">
+      <table class="detail-table">
+        <thead>
+          <tr>
+            <th class="group-header" colspan="6">基础信息</th>
+            <th class="group-header" colspan="2">活动信息</th>
+            <th class="group-header" colspan="6">UV 数据</th>
+            <th class="group-header" colspan="6">PV 数据</th>
+            <th class="group-header" colspan="1">到店</th>
+          </tr>
+          <tr>
+            <th>类目</th>
+            <th>品牌ID</th>
+            <th>品牌名称</th>
+            <th>门店数</th>
+            <th>日均交易笔数</th>
+            <th>小程序占比</th>
+            <th>活动ID</th>
+            <th>活动名称</th>
+            <th>曝光UV</th>
+            <th>领取UV</th>
+            <th>核销UV</th>
+            <th>曝光领取率</th>
+            <th>领取核销率</th>
+            <th>曝光核销率</th>
+            <th>曝光PV</th>
+            <th>领取PV</th>
+            <th>核销PV</th>
+            <th>曝光领取率</th>
+            <th>领取核销率</th>
+            <th>曝光核销率</th>
+            <th>到店核销率</th>
+          </tr>
+        </thead>
+        <tbody id="detail-table-body">
+          <tr><td colspan="21" style="text-align:center;padding:32px;color:var(--text-muted)">加载中...</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div id="pagination" class="pagination"></div>
+  </div>
+
+  <!-- Export canvas (hidden) -->
+  <div id="export-canvas-area"></div>
+
+  <!-- Scripts -->
+  <script src="js/supabase-config.js"></script>
+  <script src="js/best-practice.js"></script>
+  <script src="js/activity-detail.js"></script>
+  <script>
+    // Tab switching
+    function switchTab(tabName) {
+      document.querySelectorAll('.tab-item').forEach(t => {
+        t.classList.toggle('active', t.dataset.tab === tabName);
+      });
+      document.getElementById('best-practice-section').style.display = tabName === 'best-practice' ? '' : 'none';
+      document.getElementById('detail-section').style.display = tabName === 'activity-detail' ? '' : 'none';
+
+      // Lazy load
+      if (tabName === 'activity-detail' && detailData.length === 0) {
+        loadActivityDetail();
+      }
+    }
+
+    // Init
+    document.addEventListener('DOMContentLoaded', async () => {
+      loadBestPracticeData();
+      // Update time
+      const { data } = await supabaseClient
+        .from('tem_brand_daily')
+        .select('report_date')
+        .order('report_date', { ascending: false })
+        .limit(1);
+      if (data && data.length > 0) {
+        document.getElementById('update-time').textContent = '数据日期: ' + data[0].report_date;
+      } else {
+        document.getElementById('update-time').textContent = '暂无数据';
+      }
+    });
+  </script>
+
+</body>
+</html>
