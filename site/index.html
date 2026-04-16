@@ -48,18 +48,9 @@
 
     <!-- 分类目 Top3 最佳实践 -->
     <h2 class="section-title" style="padding:20px 32px 0">🏆 分类目最佳实践（四级类目 × 指标 Top3）</h2>
-    <p style="padding:0 32px;margin:4px 0 0;font-size:13px;color:var(--text-muted)">
-      仅展示：茶饮咖啡、西式快餐、中式快餐、正餐、小吃、甜品烘焙
+    <p style="padding:0 32px;margin:4px 0 12px;font-size:13px;color:var(--text-muted)">
+      仅展示：茶饮咖啡、中式快餐、西式快餐、正餐、小吃、甜品烘焙
     </p>
-    <div class="action-bar">
-      <label style="display:flex;align-items:center;gap:8px;font-size:14px;color:var(--text-muted);cursor:pointer">
-        <input type="checkbox" class="custom-check" id="select-all-cats" onchange="toggleAllCategories(this.checked)">
-        全选 / 取消
-      </label>
-      <button class="btn-primary" onclick="exportCardsAsImage()">
-        📥 导出图片
-      </button>
-    </div>
     <div id="best-practice-container" class="card-grid">
       <div class="loading"><div class="spinner"></div><p>加载数据中...</p></div>
     </div>
