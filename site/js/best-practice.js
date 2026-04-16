@@ -112,6 +112,9 @@ async function loadBestPracticeData() {
       const cUv = act.claim_uv || 0;
       const rUv = act.redeem_uv || 0;
 
+      // 过滤曝光=0的活动
+      if (ePv === 0 && eUv === 0) continue;
+
       const item = {
         brand_id: act.brand_id,
         brand_name: act.brand_name || brand?.brand_name || '-',
@@ -165,50 +168,57 @@ async function loadBestPracticeData() {
 
 function renderBestPracticeCards() {
   const container = document.getElementById('best-practice-container');
-  const catMapping = {};
-  for (const kw of CATEGORY_ORDER) {
-    const matchedCats = Object.keys(bestPracticeData).filter(k => k.includes(kw));
-    if (matchedCats.length > 0) catMapping[kw] = matchedCats;
-  }
 
   if (Object.keys(bestPracticeData).length === 0) {
     container.innerHTML = '<div class="loading"><p>暂无数据</p></div>';
     return;
   }
 
-  let html = '';
-  for (const kw of CATEGORY_ORDER) {
-    const matchedCats = catMapping[kw] || [];
-    for (const cat of matchedCats) {
-      html += `<div class="cat-card" data-category="${cat}">
-        <div class="card-header">
-          <span class="card-title">${cat}</span>
-        </div>
-        <div class="metric-columns">`;
+  // 业态emoji映射
+  const emojiMap = {
+    '茶饮咖啡': '🧋', '中式快餐': '🍚', '西式快餐': '🍔',
+    '正餐': '🍽️', '小吃': '🍢', '甜品烘焙': '🍰',
+  };
 
-      for (const metric of METRICS) {
+  // 统一视图：按指标 × 行业 Top3
+  let html = '';
+  for (const metric of METRICS) {
+    html += `<div class="unified-metric-section">
+      <div class="metric-section-header">${metric.label}</div>
+      <table class="metric-table">
+        <thead><tr>
+          <th style="width:140px">行业</th>
+          <th style="width:32px">排名</th>
+          <th>品牌</th>
+          <th>活动名称</th>
+          <th style="width:80px;text-align:right">${metric.label}</th>
+        </tr></thead><tbody>`;
+
+    for (const kw of CATEGORY_ORDER) {
+      const matchedCats = Object.keys(bestPracticeData).filter(k => k.includes(kw));
+      for (const cat of matchedCats) {
         const top3 = bestPracticeData[cat][metric.key] || [];
-        html += `<div class="metric-col">
-          <div class="metric-col-header">${metric.label}</div>`;
-        for (const item of top3) {
+        const emoji = emojiMap[kw] || '';
+        const catDisplay = cat.length > 8 ? cat.slice(0, 8) + '…' : cat;
+        for (let i = 0; i < top3.length; i++) {
+          const item = top3[i];
           const rateStr = (item.rate * 100).toFixed(1) + '%';
-          html += `<div class="top-item">
-            <span class="rank-badge rank-${item.rank}">${item.rank}</span>
-            <div class="top-item-info">
-              <span class="brand-name">${item.brand_name}</span>
-              <span class="act-name" title="${item.activity_name}">${item.activity_name}</span>
-            </div>
-            <span class="rate-value">${rateStr}</span>
-          </div>`;
+          html += `<tr>
+            ${i === 0 ? `<td rowspan="${top3.length}" class="cat-cell">${emoji} ${catDisplay}</td>` : ''}
+            <td class="rank-cell"><span class="rank-badge rank-${item.rank}">${item.rank}</span></td>
+            <td class="brand-cell">${item.brand_name}</td>
+            <td class="act-cell" title="${item.activity_name}">${item.activity_name}</td>
+            <td class="rate-cell">${rateStr}</td>
+          </tr>`;
         }
         if (top3.length === 0) {
-          html += '<div class="top-item" style="color:var(--text-muted);font-size:11px">暂无数据</div>';
+          html += `<tr><td class="cat-cell">${emoji} ${catDisplay}</td><td colspan="4" style="color:var(--text-muted);text-align:center;font-size:12px">暂无数据</td></tr>`;
         }
-        html += '</div>';
       }
-      html += '</div></div>';
     }
+    html += '</tbody></table></div>';
   }
+
   container.innerHTML = html;
 }
 

@@ -30,7 +30,7 @@ function fmtRateWithAnomaly(rate, field) {
   const str = fmtRate(rate);
   if (typeof rate !== 'number' || isNaN(rate)) return str;
   if (isRateAnomaly(field, rate)) {
-    return `<span class="anomaly-value" title="超过阈值，数据异常">⚠ ${str}</span>`;
+    return `<span class="anomaly-value" title="转化率超过阈值">⚠ 数据异常</span>`;
   }
   return str;
 }
@@ -121,6 +121,9 @@ async function loadActivityDetail() {
       const ePv = act.exposure_pv || 0;
       const cPv = act.claim_pv || 0;
       const rPv = act.redeem_pv || 0;
+
+      // 过滤曝光=0的活动
+      if (ePv === 0 && eUv === 0) continue;
 
       // 负责人逻辑：先查 KA分工，再查 品牌→经营服务商→服务商分工→负责人
       let owner = kaOwnerMap[bid] || '';

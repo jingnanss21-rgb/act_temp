@@ -508,3 +508,62 @@ body {
 .anomaly-row { background: rgba(239, 68, 68, 0.03) !important; }
 .anomaly-row:hover { background: rgba(239, 68, 68, 0.06) !important; }
 .anomaly-value { color: #DC2626; font-weight: 600; }
+
+/* 统一视图 - 分指标 Top3 表格 */
+.unified-metric-section {
+  background: var(--bg-white);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  margin: 16px 32px;
+  overflow: hidden;
+}
+.metric-section-header {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--primary);
+  background: #EFF6FF;
+  padding: 10px 20px;
+  border-bottom: 1px solid #DBEAFE;
+}
+.metric-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 13px;
+}
+.metric-table thead th {
+  background: #F8FAFC;
+  color: var(--text-muted);
+  padding: 8px 14px;
+  font-weight: 500;
+  font-size: 12px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+}
+.metric-table tbody td {
+  padding: 7px 14px;
+  border-bottom: 1px solid #F1F5F9;
+}
+.metric-table tbody tr:hover { background: #F8FAFC; }
+.metric-table .cat-cell {
+  font-weight: 600;
+  color: var(--text-dark);
+  background: #FAFBFC;
+  border-right: 2px solid #E2E8F0;
+  font-size: 13px;
+  vertical-align: top;
+}
+.metric-table .rank-cell { text-align: center; }
+.metric-table .brand-cell { font-weight: 500; }
+.metric-table .act-cell {
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-muted);
+}
+.metric-table .rate-cell {
+  text-align: right;
+  font-weight: 700;
+  color: var(--primary);
+}
