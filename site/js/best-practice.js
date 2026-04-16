@@ -336,17 +336,19 @@ function openLayer2(catKey) {
       const maxFunnel = Math.max(...funnelSteps.map(s => s.value || 0), 1);
 
       html += `</div>
-        <div class="drawer-funnel-gradient">`;
+        <div class="drawer-funnel-gradient" style="align-items:flex-start">`;
       for (let fi = 0; fi < funnelSteps.length; fi++) {
         const step = funnelSteps[fi];
         const opacity = 1 - fi * 0.15;
         const numStr = step.value ? fmtNum(step.value) : '-';
-        const estNote = step.est ? '<div style="text-align:center;font-size:9px;color:#FAAD14;margin-top:2px;cursor:help" title="因活动维度到店核销数据缺失，暂按照品牌维度到店核销倒推，即活动预估领取到店人数=活动核销人数/品牌整体到店核销率">*预估</div>' : '';
-        html += `<div class="fg-step" style="flex:1">
+        const estLabel = step.est ? '*预估' : '&nbsp;';
+        const estColor = step.est ? 'color:#FAAD14' : 'visibility:hidden';
+        html += `<div class="fg-step" style="flex:1;text-align:center">
           <div class="fg-bar" style="background:${color};opacity:${opacity};min-height:50px">
             <span class="fg-label">${step.label}</span>
             <span class="fg-num">${numStr}</span>
-          </div>${estNote}
+          </div>
+          <div style="font-size:9px;${estColor};margin-top:2px;line-height:1.2;cursor:${step.est?'help':'default'}" ${step.est?'title="因活动维度到店核销数据缺失，暂按照品牌维度到店核销倒推"':''}>${estLabel}</div>
         </div>`;
         if (fi < funnelSteps.length - 1) {
           html += `<div class="fg-arrow">▶</div>`;
