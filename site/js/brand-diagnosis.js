@@ -256,7 +256,7 @@ function runDiagnosis() {
   const meds = diagCatMedians[cat] || {};
   const weakMetrics = DIAG_METRICS.filter(mk => diagCurrentBrand.metrics[mk.key] < (meds[mk.key] || 0));
   const worstMetric = weakMetrics.length > 0
-    ? weakMetrics.reduce((a, c) => (diagCurrentBrand.metrics[c.key] / (meds[c.key] || 1)) < (diagCurrentBrand.metrics[a.key] / (meds[a.key] || 1)) ? c : a)
+    ? weakMetrics.reduce((a, c) => ((meds[c.key] || 0) - diagCurrentBrand.metrics[c.key]) > ((meds[a.key] || 0) - diagCurrentBrand.metrics[a.key]) ? c : a)
     : null;
   if (worstMetric) diagSelectedMetric = worstMetric.key;
 
@@ -286,7 +286,7 @@ function renderDiagResult() {
 
   const weakMetrics = DIAG_METRICS.filter(mk => b.metrics[mk.key] < (meds[mk.key] || 0));
   const worstMetric = weakMetrics.length > 0
-    ? weakMetrics.reduce((a, c) => (b.metrics[c.key] / (meds[c.key] || 1)) < (b.metrics[a.key] / (meds[a.key] || 1)) ? c : a)
+    ? weakMetrics.reduce((a, c) => ((meds[c.key] || 0) - b.metrics[c.key]) > ((meds[a.key] || 0) - b.metrics[a.key]) ? c : a)
     : null;
 
   const resultDiv = document.getElementById('diag-result');
@@ -632,7 +632,7 @@ function generateInsights(top3, mk, cat) {
     items.push('建议：优化券名称中的利益点表达，突出折扣力度或赠品价值');
   } else if (mk.key === 'claim_redeem') {
     items.push('高领取核销率说明券的<b>使用场景匹配度高</b>，用户领券后有明确的消费动机');
-    items.push('建议：缩短券有效期至 3-7 天，制造使用紧迫感');
+    items.push('建议：优化券面使用门槛和适用范围，降低核销阻力');
   } else if (mk.key === 'exposure_redeem') {
     items.push('全链路转化率是<b>综合竞争力</b>的体现，Top3 在曝光吸引力和核销转化上均表现优异');
     items.push('建议：关注转化漏斗中流失最大的环节，针对性优化');

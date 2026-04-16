@@ -487,20 +487,12 @@ function openLayer3(catKey, activityId, brandId) {
           <thead><tr><th></th><th>本活动</th><th>${catKey}均值</th><th></th></tr></thead>
           <tbody>
             ${comparisonRow('曝光领取率', expClm, meds.exposure_claim)}
+            ${comparisonRow('领取核销率', clmRdm, meds.claim_redeem)}
             ${comparisonRow('领取到店率<sup class="est-tag">*预估</sup>', clmToStore, meds.claim_to_store)}
             ${comparisonRow('到店核销率', storeRdm, meds.store_redeem)}
             ${comparisonRow('全链路转化率<br><span style="font-size:10px;color:#8C8C8C">(曝光核销率)</span>', expRdm, meds.exposure_redeem)}
           </tbody>
         </table>
-        <div style="margin-top:10px;padding-top:10px;border-top:1px dashed #E5E7EB">
-          <div style="font-size:11px;color:#8C8C8C;margin-bottom:6px">📊 参考指标</div>
-          <table class="cmp-table" style="margin-top:0">
-            <tbody>
-              ${comparisonRow('曝光领取率 (PV)', expClm, meds.exposure_claim)}
-              ${comparisonRow('领取核销率 (PV)', clmRdm, meds.claim_redeem)}
-            </tbody>
-          </table>
-        </div>
         <div class="cmp-note">数据更新时间：${latestByBrand[item.brand_id]?.report_date || '-'}</div>
       </div>
     </div>
