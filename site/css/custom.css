@@ -633,6 +633,15 @@ body {
 .funnel-num { display: block; font-size: 13px; font-weight: 600; color: var(--text-dark); }
 .funnel-arrow { color: var(--text-muted); font-size: 14px; flex-shrink: 0; }
 
+/* 渐变漏斗图 */
+.drawer-funnel-gradient { display: flex; align-items: center; gap: 2px; padding: 10px 12px; background: #F8FAFC; border-radius: 8px; margin-top: 8px; }
+.fg-step { flex-shrink: 1; min-width: 0; }
+.fg-bar { border-radius: 6px; padding: 6px 8px; display: flex; flex-direction: column; align-items: center; color: #fff; min-height: 44px; justify-content: center; }
+.fg-label { font-size: 10px; font-weight: 600; opacity: 0.9; }
+.fg-num { font-size: 12px; font-weight: 700; white-space: nowrap; }
+.fg-arrow { color: var(--text-muted); font-size: 8px; flex-shrink: 0; }
+.est-mark { font-size: 9px; opacity: 0.8; }
+
 /* 第三层：模态弹窗 */
 .bp-modal {
   position: fixed; inset: 0; z-index: 300;

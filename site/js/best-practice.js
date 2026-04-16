@@ -235,7 +235,7 @@ function renderLayer1() {
       const rate = item[metric.calcField];
       const pct = maxRate > 0 ? (rate / maxRate * 100) : 0;
       cardsHtml += `<div class="bp-bar-row">
-        <span class="bp-bar-rank">${i === 0 ? 'Top3' : i === 1 ? 'bar2' : 'bar3'}</span>
+        <span class="bp-bar-rank">${i === 0 ? 'Top1' : i === 1 ? 'Top2' : 'Top3'}</span>
         <div class="bp-bar-track"><div class="bp-bar-fill" style="width:${pct}%;background:${barColor}"></div></div>
         <span class="bp-bar-pct">${fmtPct(rate)}</span>
         <span class="bp-bar-name">${item.brand_name}</span>
@@ -323,16 +323,34 @@ function openLayer2(catKey) {
         </div>`;
       }
 
+      // 渐变漏斗（曝光→领取→到店→核销）
+      const funnelSteps = [
+        { label: '曝光', value: item.exposure_uv, est: false },
+        { label: '领取', value: item.claim_uv, est: false },
+        { label: '到店', value: storeVisit, est: true },
+        { label: '核销', value: item.redeem_uv, est: false },
+      ];
+      const maxFunnel = Math.max(...funnelSteps.map(s => s.value || 0), 1);
+
       html += `</div>
-        <div class="drawer-funnel-mini">
-          <div class="funnel-step"><span class="funnel-label">曝光</span><span class="funnel-num">${fmtNum(item.exposure_uv)}</span></div>
-          <span class="funnel-arrow">→</span>
-          <div class="funnel-step"><span class="funnel-label">领取</span><span class="funnel-num">${fmtNum(item.claim_uv)}</span></div>
-          <span class="funnel-arrow">→</span>
-          <div class="funnel-step"><span class="funnel-label">到店</span><span class="funnel-num">${storeVisitStr}</span></div>
-          <span class="funnel-arrow">→</span>
-          <div class="funnel-step"><span class="funnel-label">核销</span><span class="funnel-num">${fmtNum(item.redeem_uv)}</span></div>
-        </div>
+        <div class="drawer-funnel-gradient">`;
+      for (let fi = 0; fi < funnelSteps.length; fi++) {
+        const step = funnelSteps[fi];
+        const widthPct = step.value ? Math.max((step.value / maxFunnel) * 100, 20) : 20;
+        const opacity = 1 - fi * 0.2;
+        const numStr = step.value ? fmtNum(step.value) : '-';
+        const estMark = step.est ? ' <span class="est-mark">*预估</span>' : '';
+        html += `<div class="fg-step" style="width:${widthPct}%">
+          <div class="fg-bar" style="background:${color};opacity:${opacity}">
+            <span class="fg-label">${step.label}</span>
+            <span class="fg-num">${numStr}${estMark}</span>
+          </div>
+        </div>`;
+        if (fi < funnelSteps.length - 1) {
+          html += `<div class="fg-arrow">▶</div>`;
+        }
+      }
+      html += `</div>
       </div>`;
     }
 
@@ -434,7 +452,7 @@ function openLayer3(catKey, activityId, brandId) {
           </div>
           <div class="funnel-transition">
             <span class="ft-label">曝光领取率</span>
-            <span class="ft-conv">转化率 ${fmtPct(expClm)}</span>
+            <span class="ft-conv">${fmtPct(expClm)}</span>
             <span class="ft-loss">| 流失率 ${fmtPct(lossRate(expClm))}</span>
           </div>
           <div class="funnel-level" style="width:80%;background:${color}CC">
@@ -442,7 +460,7 @@ function openLayer3(catKey, activityId, brandId) {
           </div>
           <div class="funnel-transition">
             <span class="ft-label">领取到店率 *预估</span>
-            <span class="ft-conv">转化率 ${fmtPct(clmToStore)}</span>
+            <span class="ft-conv">${fmtPct(clmToStore)}</span>
             <span class="ft-loss">| 流失率 ${fmtPct(lossRate(clmToStore))}</span>
           </div>
           <div class="funnel-level" style="width:60%;background:${color}AA">
@@ -450,7 +468,7 @@ function openLayer3(catKey, activityId, brandId) {
           </div>
           <div class="funnel-transition">
             <span class="ft-label">到店核销率</span>
-            <span class="ft-conv">转化率 ${fmtPct(storeRdm)}</span>
+            <span class="ft-conv">${fmtPct(storeRdm)}</span>
             <span class="ft-loss">| 流失率 ${fmtPct(lossRate(storeRdm))}</span>
           </div>
           <div class="funnel-level" style="width:40%;background:${color}88">
