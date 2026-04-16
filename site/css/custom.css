@@ -670,22 +670,25 @@ body {
 }
 .modal-close:hover { background: #E2E8F0; }
 
-.modal-body { display: flex; gap: 0; padding: 24px 28px; }
-.modal-left { flex: 1; padding-right: 24px; border-right: 1px solid var(--border); }
-.modal-right { flex: 1; padding-left: 24px; }
+.modal-body { display: flex; gap: 0; padding: 24px 28px; align-items: stretch; }
+.modal-left { flex: 1; padding-right: 24px; border-right: 1px solid var(--border); display: flex; flex-direction: column; justify-content: center; }
+.modal-right { flex: 1; padding-left: 24px; display: flex; flex-direction: column; }
 
 /* 漏斗 */
-.funnel-full { display: flex; flex-direction: column; align-items: center; gap: 0; }
+.funnel-full { display: flex; flex-direction: column; align-items: center; gap: 0; flex: 1; justify-content: space-between; }
 .funnel-level {
-  color: #fff; padding: 14px 20px; text-align: center;
+  color: #fff; padding: 16px 20px; text-align: center;
   border-radius: 6px; margin: 0 auto; min-width: 120px;
 }
 .fl-text { font-size: 14px; font-weight: 600; }
 .funnel-transition {
-  text-align: center; padding: 6px 0; font-size: 12px;
+  text-align: center; padding: 8px 0; font-size: 12px;
 }
+.ft-label { color: var(--text-muted); }
 .ft-conv { color: var(--text-dark); font-weight: 500; }
 .ft-loss { color: var(--text-muted); }
+.est-sup { font-size: 9px; color: #FAAD14; cursor: help; }
+.est-tag { cursor: help; }
 
 /* 对比表 */
 .cmp-title { font-size: 16px; font-weight: 700; color: var(--text-dark); margin-bottom: 16px; }
@@ -702,6 +705,66 @@ body {
 .cmp-bad { color: var(--danger); }
 .cmp-diff { font-size: 11px; }
 .cmp-note { margin-top: 16px; font-size: 12px; color: var(--text-muted); text-align: center; }
+
+/* ============================================================
+   品牌诊断模块
+   ============================================================ */
+.diag-report { background: #fff; border-radius: 12px; box-shadow: 0 1px 4px rgba(0,0,0,0.06); padding: 24px; margin-top: 16px; }
+
+/* A区 */
+.diag-area-a { display: flex; justify-content: space-between; align-items: flex-start; padding-bottom: 20px; border-bottom: 1px solid var(--border); }
+.diag-brand-name { font-size: 24px; font-weight: 800; color: var(--text-dark); }
+.diag-cat-tag { display: inline-block; font-size: 12px; font-weight: 500; padding: 2px 10px; border-radius: 4px; background: #EFF6FF; color: #1677FF; margin-left: 8px; vertical-align: middle; }
+.diag-brand-meta { font-size: 13px; color: var(--text-muted); margin-top: 4px; }
+.diag-brand-stats { display: flex; gap: 32px; margin-top: 16px; }
+.dbs-item { text-align: center; }
+.dbs-num { font-size: 20px; font-weight: 700; color: var(--text-dark); }
+.dbs-label { font-size: 12px; color: var(--text-muted); }
+.diag-health-ring { text-align: center; flex-shrink: 0; }
+
+/* 气泡提示 */
+.diag-bubble { padding: 10px 16px; border-radius: 8px; font-size: 13px; margin: 12px 0; }
+.diag-bubble-warn { background: #FFF1F0; color: #FF4D4F; border: 1px solid #FFD6D6; }
+.diag-bubble-ok { background: #F6FFED; color: #52C41A; border: 1px solid #D9F7BE; }
+
+/* B区 */
+.diag-area-b { display: flex; gap: 24px; padding: 20px 0; border-bottom: 1px solid var(--border); align-items: flex-start; }
+.diag-radar-wrap { flex-shrink: 0; }
+.diag-metrics-table-wrap { flex: 1; min-width: 0; }
+.diag-metrics-table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 13px; }
+.diag-metrics-table th { padding: 8px 10px; font-size: 12px; color: var(--text-muted); border-bottom: 1px solid var(--border); font-weight: 500; }
+.diag-metrics-table td { padding: 10px 10px; border-bottom: 1px solid #F1F5F9; }
+.diag-metric-row:hover { background: #F8FAFC; }
+.diag-metric-row.selected { background: #EFF6FF; border-left: 3px solid #1677FF; }
+.diag-row-weak { background: #FFF1F0 !important; }
+.diag-status-good { color: #52C41A; font-size: 11px; font-weight: 500; }
+.diag-status-bad { color: #FF4D4F; font-size: 11px; font-weight: 500; }
+
+/* C区 */
+.diag-area-c { padding: 20px 0; border-bottom: 1px solid var(--border); }
+.diag-section-title { font-size: 16px; font-weight: 700; color: var(--text-dark); margin: 0 0 12px; }
+.diag-t3-list { display: flex; flex-direction: column; gap: 8px; }
+.diag-t3-item { display: flex; align-items: center; gap: 12px; padding: 10px 16px; background: #F8FAFC; border-radius: 8px; }
+.diag-t3-medal { font-size: 20px; flex-shrink: 0; }
+.diag-t3-info { flex: 1; min-width: 0; }
+.diag-t3-brand { font-size: 13px; font-weight: 500; }
+.diag-t3-val { font-size: 16px; font-weight: 700; color: #1677FF; flex-shrink: 0; }
+
+/* D区 */
+.diag-area-d { padding: 20px 0 0; }
+.diag-act-list { display: flex; flex-direction: column; gap: 12px; }
+.diag-act-card { background: #F8FAFC; border-radius: 8px; padding: 14px 16px; }
+.diag-act-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+.diag-act-metrics { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 16px; margin-bottom: 10px; }
+.diag-act-mb { }
+.damb-label { font-size: 11px; color: var(--text-muted); margin-bottom: 2px; }
+.damb-bar-wrap { position: relative; height: 6px; background: #E5E7EB; border-radius: 3px; }
+.damb-bar { height: 100%; border-radius: 3px; transition: width 0.3s; }
+.damb-med { position: absolute; top: -2px; width: 2px; height: 10px; background: #8C8C8C; }
+.damb-val { font-size: 11px; margin-top: 2px; }
+.diag-act-funnel { display: flex; align-items: center; gap: 4px; font-size: 11px; }
+.daf-step { color: #fff; padding: 4px 10px; border-radius: 4px; font-weight: 600; white-space: nowrap; }
+.daf-arrow { color: var(--text-muted); font-size: 10px; flex-shrink: 0; }
 
 /* 响应式：小屏两列 */
 @media (max-width: 1024px) { .bp-card-grid { grid-template-columns: repeat(2, 1fr); } }

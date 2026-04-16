@@ -168,6 +168,9 @@ async function loadBestPracticeData() {
       // 领取到店率中位数（预估）
       const ctsVals = normalItems.map(i => i.claim_to_store_rate).filter(v => !isNaN(v) && v > 0);
       catMedians[catKey].claim_to_store = median(ctsVals);
+      // 领取核销率中位数
+      const crVals = normalItems.map(i => i.claim_redeem_rate).filter(v => !isNaN(v) && v > 0);
+      catMedians[catKey].claim_redeem = median(crVals);
     }
 
     renderLayer1();
@@ -336,11 +339,10 @@ function openLayer2(catKey) {
         <div class="drawer-funnel-gradient">`;
       for (let fi = 0; fi < funnelSteps.length; fi++) {
         const step = funnelSteps[fi];
-        const widthPct = step.value ? Math.max((step.value / maxFunnel) * 100, 20) : 20;
-        const opacity = 1 - fi * 0.2;
+        const opacity = 1 - fi * 0.15;
         const numStr = step.value ? fmtNum(step.value) : '-';
         const estMark = step.est ? ' <span class="est-mark">*预估</span>' : '';
-        html += `<div class="fg-step" style="width:${widthPct}%">
+        html += `<div class="fg-step" style="flex:1">
           <div class="fg-bar" style="background:${color};opacity:${opacity}">
             <span class="fg-label">${step.label}</span>
             <span class="fg-num">${numStr}${estMark}</span>
@@ -455,38 +457,48 @@ function openLayer3(catKey, activityId, brandId) {
             <span class="ft-conv">${fmtPct(expClm)}</span>
             <span class="ft-loss">| 流失率 ${fmtPct(lossRate(expClm))}</span>
           </div>
-          <div class="funnel-level" style="width:80%;background:${color}CC">
+          <div class="funnel-level" style="width:85%;background:${color}CC">
             <span class="fl-text">领取人数 = ${fmtNum(claimUv)}人</span>
           </div>
           <div class="funnel-transition">
-            <span class="ft-label">领取到店率 *预估</span>
+            <span class="ft-label"><span class="est-tag" title="因活动维度到店核销数据缺失，暂按照品牌维度到店核销倒推，即活动预估领取到店人数=活动核销人数/品牌整体到店核销率">领取到店率 <sup class="est-sup">*预估</sup></span></span>
             <span class="ft-conv">${fmtPct(clmToStore)}</span>
             <span class="ft-loss">| 流失率 ${fmtPct(lossRate(clmToStore))}</span>
           </div>
-          <div class="funnel-level" style="width:60%;background:${color}AA">
-            <span class="fl-text">到店人数 = ${storeVisitUv !== null ? fmtNum(storeVisitUv) + '人 *预估' : '-'}</span>
+          <div class="funnel-level" style="width:65%;background:${color}AA">
+            <span class="fl-text">到店人数 = ${storeVisitUv !== null ? fmtNum(storeVisitUv) : '-'}人 <sup class="est-sup" title="因活动维度到店核销数据缺失，暂按照品牌维度到店核销倒推">*预估</sup></span>
           </div>
           <div class="funnel-transition">
             <span class="ft-label">到店核销率</span>
             <span class="ft-conv">${fmtPct(storeRdm)}</span>
             <span class="ft-loss">| 流失率 ${fmtPct(lossRate(storeRdm))}</span>
           </div>
-          <div class="funnel-level" style="width:40%;background:${color}88">
+          <div class="funnel-level" style="width:45%;background:${color}88">
             <span class="fl-text">核销人数 = ${fmtNum(redeemUv)}人</span>
           </div>
         </div>
       </div>
       <div class="modal-right">
         <div class="cmp-title">对比业态均值</div>
+        <div style="font-size:11px;color:#8C8C8C;margin-bottom:6px">🔄 过程指标（漏斗转化链路）</div>
         <table class="cmp-table">
           <thead><tr><th></th><th>本活动</th><th>${catKey}均值</th><th></th></tr></thead>
           <tbody>
             ${comparisonRow('曝光领取率', expClm, meds.exposure_claim)}
-            ${comparisonRow('领取到店率 *预估', clmToStore, meds.claim_to_store)}
+            ${comparisonRow('领取到店率 <sup class="est-sup">*预估</sup>', clmToStore, meds.claim_to_store)}
             ${comparisonRow('到店核销率', storeRdm, meds.store_redeem)}
-            ${comparisonRow('全链路转化率<br>(曝光核销率)', expRdm, meds.exposure_redeem)}
+            ${comparisonRow('全链路转化率<br><span style="font-size:10px;color:#8C8C8C">(曝光核销率)</span>', expRdm, meds.exposure_redeem)}
           </tbody>
         </table>
+        <div style="margin-top:10px;padding-top:10px;border-top:1px dashed #E5E7EB">
+          <div style="font-size:11px;color:#8C8C8C;margin-bottom:6px">📊 参考指标</div>
+          <table class="cmp-table" style="margin-top:0">
+            <tbody>
+              ${comparisonRow('曝光领取率 (PV)', expClm, meds.exposure_claim)}
+              ${comparisonRow('领取核销率 (PV)', clmRdm, meds.claim_redeem)}
+            </tbody>
+          </table>
+        </div>
         <div class="cmp-note">数据更新时间：${latestByBrand[item.brand_id]?.report_date || '-'}</div>
       </div>
     </div>
