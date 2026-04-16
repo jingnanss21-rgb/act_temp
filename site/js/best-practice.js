@@ -1,26 +1,39 @@
 /**
- * best-practice.js - 分类目最佳实践模块
+ * best-practice.js - 分类目最佳实践 + 品牌诊断卡片
  */
 
 const METRICS = [
-  { key: 'exposure_redeem', label: '曝光核销率', field_daily: 'daily_exposure_redeem_rate', field_w7: 'w7_exposure_redeem_rate' },
-  { key: 'exposure_claim',  label: '曝光领取率', field_daily: 'daily_exposure_claim_rate',  field_w7: 'w7_exposure_claim_rate' },
-  { key: 'claim_redeem',    label: '领取核销率', field_daily: 'daily_claim_redeem_rate',    field_w7: 'w7_claim_redeem_rate' },
-  { key: 'store_redeem',    label: '到店核销率', field_daily: null,                         field_w7: 'w7_store_redeem_rate_uv' },
+  { key: 'exposure_redeem', label: '曝光核销率', calcField: 'exposure_redeem_rate' },
+  { key: 'exposure_claim',  label: '曝光领取率', calcField: 'exposure_claim_rate' },
+  { key: 'claim_redeem',    label: '领取核销率', calcField: 'claim_redeem_rate' },
+  { key: 'store_redeem',    label: '到店核销率', calcField: 'store_redeem_rate' },
 ];
 
-let bestPracticeData = {};
+// --- 品牌诊断卡片用到的指标 ---
+const DIAG_METRICS = [
+  { key: 'w7_exposure_pv',    label: '近7日曝光PV',     field: 'w7_avg_exposure_pv',  type: 'num' },
+  { key: 'w7_claim_pv',       label: '近7日领取PV',     field: 'w7_avg_claim_pv',     type: 'num' },
+  { key: 'w7_redeem_pv',      label: '近7日核销PV',     field: 'w7_avg_redeem_pv',    type: 'num' },
+  { key: 'w7_exp_claim_rate', label: '曝光领取率',       field: 'w7_exposure_claim_rate', type: 'rate' },
+  { key: 'w7_clm_red_rate',   label: '领取核销率',       field: 'w7_claim_redeem_rate',   type: 'rate' },
+  { key: 'w7_exp_red_rate',   label: '曝光核销率',       field: 'w7_exposure_redeem_rate', type: 'rate' },
+  { key: 'w7_store_rate',     label: '到店核销率',       field: 'w7_store_redeem_rate_uv', type: 'rate' },
+];
+
+let bestPracticeData = {};        // { category_l4: { metric_key: [top3 items] } }
 let selectedCategories = new Set();
+let allBrandDaily = [];           // 品牌日报全量（最新日期去重后）
+let allActivitiesForBP = [];      // 活动全量（带品牌信息）
 
 async function loadBestPracticeData() {
   const container = document.getElementById('best-practice-container');
   container.innerHTML = '<div class="loading"><div class="spinner"></div><p>加载数据中...</p></div>';
 
   try {
-    // 取品牌日报最新日期的数据
+    // 取品牌日报最新日期的数据（用四级类目）
     const { data: brandData, error: bErr } = await supabaseClient
       .from('tem_brand_daily')
-      .select('brand_id, brand_name, category_l1, report_date, w7_exposure_claim_rate, w7_claim_redeem_rate, w7_exposure_redeem_rate, w7_store_redeem_rate_uv')
+      .select('brand_id, brand_name, category_l4, report_date, w7_exposure_claim_rate, w7_claim_redeem_rate, w7_exposure_redeem_rate, w7_store_redeem_rate_uv, w7_avg_exposure_pv, w7_avg_claim_pv, w7_avg_redeem_pv')
       .order('report_date', { ascending: false })
       .limit(5000);
 
@@ -29,11 +42,12 @@ async function loadBestPracticeData() {
     // 按品牌取最新一条
     const latestByBrand = {};
     for (const row of brandData) {
-      if (!row.brand_id || !row.category_l1) continue;
+      if (!row.brand_id) continue;
       if (!latestByBrand[row.brand_id]) {
         latestByBrand[row.brand_id] = row;
       }
     }
+    allBrandDaily = Object.values(latestByBrand);
 
     // 取活动数据
     const { data: actData, error: aErr } = await supabaseClient
@@ -43,52 +57,52 @@ async function loadBestPracticeData() {
 
     if (aErr) throw aErr;
 
-    // 按类目分组计算 Top3
+    // 按四级类目分组，计算活动级别的转化率 → Top3
     const categoryMap = {};
+    allActivitiesForBP = [];
+
     for (const act of actData) {
       const brand = latestByBrand[act.brand_id];
-      if (!brand || !brand.category_l1) continue;
-      const cat = brand.category_l1;
-      if (!categoryMap[cat]) {
-        categoryMap[cat] = [];
-      }
+      const cat = brand?.category_l4 || '';
+      if (!cat) continue;
 
       const eUv = act.exposure_uv || 0;
       const cUv = act.claim_uv || 0;
       const rUv = act.redeem_uv || 0;
 
-      categoryMap[cat].push({
-        brand_name: act.brand_name || brand.brand_name,
+      const item = {
+        brand_name: act.brand_name || brand?.brand_name || '-',
         activity_name: act.activity_name || '',
         activity_id: act.activity_id,
+        category_l4: cat,
         exposure_claim_rate: eUv > 0 ? cUv / eUv : 0,
         claim_redeem_rate: cUv > 0 ? rUv / cUv : 0,
         exposure_redeem_rate: eUv > 0 ? rUv / eUv : 0,
-        store_redeem_rate: parseFloat(brand.w7_store_redeem_rate_uv) || 0,
-      });
+        store_redeem_rate: parseFloat(brand?.w7_store_redeem_rate_uv) || 0,
+      };
+
+      if (!categoryMap[cat]) categoryMap[cat] = [];
+      categoryMap[cat].push(item);
+      allActivitiesForBP.push(item);
     }
 
+    // 按四级类目 + 指标排序取 Top3
     bestPracticeData = {};
     for (const [cat, items] of Object.entries(categoryMap)) {
       bestPracticeData[cat] = {};
-      const metricKeys = [
-        { key: 'exposure_redeem', field: 'exposure_redeem_rate' },
-        { key: 'exposure_claim', field: 'exposure_claim_rate' },
-        { key: 'claim_redeem', field: 'claim_redeem_rate' },
-        { key: 'store_redeem', field: 'store_redeem_rate' },
-      ];
-      for (const mk of metricKeys) {
-        const sorted = [...items].sort((a, b) => b[mk.field] - a[mk.field]);
+      for (const mk of METRICS) {
+        const sorted = [...items].sort((a, b) => b[mk.calcField] - a[mk.calcField]);
         bestPracticeData[cat][mk.key] = sorted.slice(0, 3).map((item, idx) => ({
           rank: idx + 1,
           brand_name: item.brand_name,
           activity_name: item.activity_name,
-          rate: item[mk.field],
+          rate: item[mk.calcField],
         }));
       }
     }
 
     renderBestPracticeCards();
+    initBrandDiagnostics();
   } catch (err) {
     container.innerHTML = `<div class="loading"><p style="color: var(--danger);">数据加载失败: ${err.message}</p></div>`;
     console.error(err);
@@ -137,11 +151,8 @@ function renderBestPracticeCards() {
 }
 
 function toggleCategory(cat, checked) {
-  if (checked) {
-    selectedCategories.add(cat);
-  } else {
-    selectedCategories.delete(cat);
-  }
+  if (checked) selectedCategories.add(cat);
+  else selectedCategories.delete(cat);
 }
 
 function toggleAllCategories(checked) {
@@ -155,7 +166,6 @@ async function exportCardsAsImage() {
     alert('请先勾选要导出的类目');
     return;
   }
-
   const cards = document.querySelectorAll('.cat-card');
   const exportArea = document.getElementById('export-canvas-area');
   exportArea.innerHTML = '';
@@ -169,7 +179,6 @@ async function exportCardsAsImage() {
       exportArea.appendChild(clone);
     }
   }
-
   document.body.appendChild(exportArea);
 
   try {
@@ -181,6 +190,143 @@ async function exportCardsAsImage() {
   } catch (err) {
     alert('导出失败: ' + err.message);
   }
-
   exportArea.style.cssText = 'position:absolute;left:-9999px;top:-9999px;';
+}
+
+// ============================================================
+// 品牌诊断卡片
+// ============================================================
+
+function initBrandDiagnostics() {
+  const select = document.getElementById('brand-diag-select');
+  if (!select) return;
+
+  // 填充品牌下拉
+  const brands = allBrandDaily
+    .filter(b => b.brand_name && b.category_l4)
+    .sort((a, b) => (a.brand_name || '').localeCompare(b.brand_name || ''));
+
+  select.innerHTML = '<option value="">-- 选择品牌 --</option>';
+  for (const b of brands) {
+    select.innerHTML += `<option value="${b.brand_id}">${b.brand_name} (${b.category_l4})</option>`;
+  }
+}
+
+function generateDiagCard() {
+  const select = document.getElementById('brand-diag-select');
+  const brandId = select.value;
+  if (!brandId) { alert('请先选择一个品牌'); return; }
+
+  const brand = allBrandDaily.find(b => b.brand_id === brandId);
+  if (!brand) { alert('未找到品牌数据'); return; }
+
+  const cat = brand.category_l4;
+
+  // 同类目所有品牌
+  const sameCatBrands = allBrandDaily.filter(b => b.category_l4 === cat);
+
+  // 计算中位数
+  function median(arr) {
+    const sorted = arr.filter(v => !isNaN(v) && v !== null).sort((a, b) => a - b);
+    if (sorted.length === 0) return 0;
+    const mid = Math.floor(sorted.length / 2);
+    return sorted.length % 2 !== 0 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+  }
+
+  // 类目最佳（Top1）
+  function best(arr) {
+    const sorted = arr.filter(v => !isNaN(v) && v !== null).sort((a, b) => b - a);
+    return sorted.length > 0 ? sorted[0] : 0;
+  }
+
+  const diagRows = [];
+
+  for (const m of DIAG_METRICS) {
+    const brandVal = parseFloat(brand[m.field]) || 0;
+    const catValues = sameCatBrands.map(b => parseFloat(b[m.field]) || 0);
+    const catMedian = median(catValues);
+    const catBest = best(catValues);
+
+    // 找最佳品牌名
+    let bestBrandName = '-';
+    let bestVal = 0;
+    for (const b of sameCatBrands) {
+      const v = parseFloat(b[m.field]) || 0;
+      if (v > bestVal) { bestVal = v; bestBrandName = b.brand_name || '-'; }
+    }
+
+    const diff = brandVal - catMedian;
+    const diffSign = diff >= 0 ? '+' : '';
+    const arrow = diff > 0 ? '↑' : diff < 0 ? '↓' : '→';
+    const color = diff > 0 ? 'var(--success)' : diff < 0 ? 'var(--danger)' : 'var(--text-muted)';
+
+    diagRows.push({
+      label: m.label,
+      brandVal,
+      catMedian,
+      catBest,
+      bestBrandName,
+      diff,
+      diffSign,
+      arrow,
+      color,
+      type: m.type,
+    });
+  }
+
+  // 渲染卡片
+  const container = document.getElementById('diag-card-container');
+  const fmtV = (v, type) => type === 'rate' ? (v * 100).toFixed(2) + '%' : v.toFixed(2);
+
+  let html = `
+  <div class="diag-card" id="diag-card-export">
+    <div class="diag-header">
+      <div class="diag-brand-name">${brand.brand_name}</div>
+      <div class="diag-cat">类目：${cat} | 品牌数量：${sameCatBrands.length}</div>
+    </div>
+    <table class="diag-table">
+      <thead>
+        <tr>
+          <th>指标</th>
+          <th>品牌值</th>
+          <th>类目中位数</th>
+          <th>vs 中位数</th>
+          <th>行业最佳</th>
+          <th>最佳品牌</th>
+        </tr>
+      </thead>
+      <tbody>`;
+
+  for (const r of diagRows) {
+    html += `<tr>
+      <td style="font-weight:500">${r.label}</td>
+      <td style="font-weight:600">${fmtV(r.brandVal, r.type)}</td>
+      <td>${fmtV(r.catMedian, r.type)}</td>
+      <td style="color:${r.color};font-weight:600">${r.arrow} ${r.diffSign}${r.type === 'rate' ? (r.diff * 100).toFixed(2) + 'pp' : r.diff.toFixed(2)}</td>
+      <td style="color:var(--primary);font-weight:500">${fmtV(r.catBest, r.type)}</td>
+      <td>${r.bestBrandName}</td>
+    </tr>`;
+  }
+
+  html += `</tbody></table>
+    <div class="diag-footer">数据日期：${brand.report_date || '-'} | 类目：${cat}</div>
+  </div>
+  <button class="btn-primary" style="margin-top:12px" onclick="exportDiagCard()">📥 导出诊断卡片</button>`;
+
+  container.innerHTML = html;
+}
+
+async function exportDiagCard() {
+  const card = document.getElementById('diag-card-export');
+  if (!card) return;
+  try {
+    const canvas = await html2canvas(card, { scale: 2, useCORS: true, backgroundColor: '#F8FAFC' });
+    const link = document.createElement('a');
+    const brandName = card.querySelector('.diag-brand-name')?.textContent || '品牌';
+    link.download = `诊断卡片_${brandName}_${new Date().toISOString().slice(0, 10)}.png`;
+    link.href = canvas.toDataURL('image/png');
+    link.click();
+  } catch (err) {
+    alert('导出失败: ' + err.message);
+  }
 }

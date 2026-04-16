@@ -37,7 +37,7 @@ async function loadActivityDetail() {
     // 取品牌日报（最新日期的）
     const { data: brandRows, error: bErr } = await supabaseClient
       .from('tem_brand_daily')
-      .select('brand_id, brand_name, category_l1, store_count, w7_avg_txn_count, w7_mini_program_ratio, w7_store_redeem_rate_uv, report_date')
+      .select('brand_id, brand_name, category_l4, store_count, w7_avg_txn_count, w7_mini_program_ratio, w7_store_redeem_rate_uv, report_date')
       .order('report_date', { ascending: false })
       .limit(5000);
     if (bErr) throw bErr;
@@ -59,7 +59,7 @@ async function loadActivityDetail() {
       const rPv = act.redeem_pv || 0;
 
       return {
-        category_l1: brand.category_l1 || '-',
+        category_l4: brand.category_l4 || '-',
         brand_id: act.brand_id,
         brand_name: act.brand_name || brand.brand_name || '-',
         store_count: brand.store_count || '-',
@@ -84,7 +84,7 @@ async function loadActivityDetail() {
     });
 
     // 收集类目
-    allCategories = [...new Set(detailData.map(d => d.category_l1).filter(c => c && c !== '-'))].sort();
+    allCategories = [...new Set(detailData.map(d => d.category_l4).filter(c => c && c !== '-'))].sort();
     populateCategoryFilter();
 
     filteredData = [...detailData];
@@ -112,7 +112,7 @@ function filterDetailData() {
   const keyword = document.getElementById('brand-search').value.trim().toLowerCase();
 
   filteredData = detailData.filter(row => {
-    if (cat && row.category_l1 !== cat) return false;
+    if (cat && row.category_l4 !== cat) return false;
     if (keyword && !row.brand_name.toLowerCase().includes(keyword) && !row.brand_id.toLowerCase().includes(keyword)) return false;
     return true;
   });
@@ -163,7 +163,7 @@ function renderDetailTable() {
   let html = '';
   for (const row of pageData) {
     html += `<tr>
-      <td>${row.category_l1}</td>
+      <td>${row.category_l4}</td>
       <td>${row.brand_id}</td>
       <td style="font-weight:500">${row.brand_name}</td>
       <td>${row.store_count}</td>

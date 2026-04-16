@@ -28,8 +28,25 @@
     </div>
   </div>
 
-  <!-- Tab 1: 分类目最佳实践 -->
+  <!-- Tab 1: 分类目最佳实践 + 品牌诊断 -->
   <div id="best-practice-section" class="tab-content">
+
+    <!-- 品牌诊断卡片 -->
+    <div class="diag-section">
+      <h2 class="section-title">🔍 品牌诊断卡片</h2>
+      <div class="diag-controls">
+        <select id="brand-diag-select">
+          <option value="">-- 加载中 --</option>
+        </select>
+        <button class="btn-primary" onclick="generateDiagCard()">生成诊断卡片</button>
+      </div>
+      <div id="diag-card-container"></div>
+    </div>
+
+    <hr style="border:none;border-top:1px solid #E2E8F0;margin:8px 32px 0">
+
+    <!-- 分类目 Top3 最佳实践 -->
+    <h2 class="section-title" style="padding:20px 32px 0">🏆 分类目最佳实践（四级类目 × 指标 Top3）</h2>
     <div class="action-bar">
       <label style="display:flex;align-items:center;gap:8px;font-size:14px;color:var(--text-muted);cursor:pointer">
         <input type="checkbox" class="custom-check" id="select-all-cats" onchange="toggleAllCategories(this.checked)">
