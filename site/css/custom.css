@@ -465,13 +465,18 @@ body {
   overflow-y: auto;
   margin-top: 4px;
 }
-.search-dropdown .diag-search-item {
+.search-dropdown .diag-search-item,
+.search-dropdown .search-dd-item {
   padding: 8px 12px;
   cursor: pointer;
   font-size: 13px;
   border-bottom: 1px solid #F1F5F9;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
-.search-dropdown .diag-search-item:hover {
+.search-dropdown .diag-search-item:hover,
+.search-dropdown .search-dd-item:hover {
   background: #EFF6FF;
 }
 
