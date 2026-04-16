@@ -4,3 +4,4 @@ __pycache__/
 .workbuddy/
 *.xlsx
 *.tmp
+docs/
