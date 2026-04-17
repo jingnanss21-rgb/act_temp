@@ -155,7 +155,7 @@
     document.addEventListener('DOMContentLoaded', async () => {
       loadBestPracticeData();
       const { data } = await supabaseClient
-        .from('tem_brand_daily')
+        .from('tem_activities')
         .select('report_date')
         .order('report_date', { ascending: false })
         .limit(1);

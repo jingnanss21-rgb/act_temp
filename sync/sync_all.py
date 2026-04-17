@@ -34,11 +34,11 @@ from supabase_writer import get_client, upsert_batch
 # 文档 ID 配置
 # ============================================================
 DOC_IDS = {
-    "activity_nav": "DWWhYU3FrWXhuSHhu",   # 表1: 日报活动导览（新链接）
-    "merchant":     "DWUxvdFNHQXpWd0ZO",    # 表2: 商户对接（普通sheet，完整9列）
-    "sp":           "DWU1oR0JHRUhqZ1l3",    # 表3: 服务商分工
-    "ka":           "DWXp3ZGt1VFdPTHZ4",    # 表4: KA分工
-    "brand_nav":    "DWEd3TmNnRmpvdFpm",    # 表5: 日报品牌详情
+    "activity_nav": "DWWhYU3FrWXhuSHhu",   # 活动日报导览
+    "merchant":     "DWUxvdFNHQXpWd0ZO",    # 商户跟进总表
+    "sp":           "DWVRiUGNCTUJhTHVv",    # 服务商分工
+    "ka":           "DWU9VWmZ0UWphWG9J",    # KA分工
+    "brand_nav":    "DWENVYUF5ekVPc1R3",    # 品牌日报导览
 }
 
 
@@ -92,8 +92,14 @@ def sync_activities(client):
         file_id = entry["file_id"]
         print(f"\n  处理: {text} (file_id={file_id})")
 
-        # 从链接文本提取周期信息（如 "0409-0415"）
+        # 从链接文本提取周期信息（如 "0409-0415"→取结束日期0415→2026-04-15）
         report_label = text
+        date_match = re.search(r'(\d{2})(\d{2})-(\d{2})(\d{2})', text)
+        if date_match:
+            end_month, end_day = date_match.group(3), date_match.group(4)
+            report_date = f"2026-{end_month}-{end_day}"
+        else:
+            report_date = datetime.now().strftime("%Y-%m-%d")
 
         try:
             # 第二跳：导出目标 sheet
@@ -117,7 +123,7 @@ def sync_activities(client):
                     "redeem_uv": _safe_int(row.get("核销用户数(加和)", row.get("核销用户数", 0))),
                     "start_date": _safe_str(row.get("投放开始时间", "")),
                     "end_date": _safe_str(row.get("投放结束时间", "")),
-                    "report_date": datetime.now().strftime("%Y-%m-%d"),
+                    "report_date": report_date,
                 }
                 all_rows.append(record)
 
@@ -246,7 +252,15 @@ def sync_brand_daily(client):
     }
 
     all_rows = []
-    for entry in nav_entries:
+    # 只同步最新一天（A2是最新的，即第一条有效条目）
+    valid_entries = [e for e in nav_entries if e["file_id"] and e["url"]]
+    if not valid_entries:
+        print("  ⚠ 无有效索引条目")
+        return
+    latest_entry = valid_entries[0]
+    print(f"  → 只同步最新: {latest_entry['text']}")
+
+    for entry in [latest_entry]:
         if not entry["file_id"] or not entry["url"]:
             continue
         text = entry["text"]
