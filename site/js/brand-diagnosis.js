@@ -13,6 +13,7 @@ let diagMerchants = {};
 let diagCatMedians = {};
 let diagCatBest = {};     // category -> { metric -> max value } // FIX: Bug #2 - 改为取真正的 max
 let diagCatP25 = {};
+let diagCatP85 = {};      // 85th percentile（前15%水平线）
 let diagCatTop3 = {};
 let diagAllBrands = [];
 let diagCurrentBrand = null;
@@ -121,6 +122,7 @@ function computeCategoryStats() {
     diagCatMedians[cat] = {};
     diagCatBest[cat] = {};
     diagCatP25[cat] = {};
+    diagCatP85[cat] = {};
     diagCatTop3[cat] = {};
 
     for (const mk of DIAG_METRICS) {
@@ -133,6 +135,14 @@ function computeCategoryStats() {
         diagCatP25[cat][mk.key] = vals[p25Idx] || vals[vals.length - 1];
       } else {
         diagCatP25[cat][mk.key] = 0;
+      }
+
+      // P85（85th percentile，前15%水平线）
+      if (vals.length > 0) {
+        const p85Idx = Math.floor(vals.length * 0.85);
+        diagCatP85[cat][mk.key] = vals[p85Idx] || vals[vals.length - 1];
+      } else {
+        diagCatP85[cat][mk.key] = 0;
       }
 
       // Top3
@@ -294,19 +304,17 @@ function renderDiagResult() {
   const cat = b.category;
   const meds = diagCatMedians[cat] || {};
   const p25 = diagCatP25[cat] || {};
+  const p85 = diagCatP85[cat] || {};
   const best = diagCatBest[cat] || {};
   const isExt = diagMode === 'external';
   const metrics = isExt ? DIAG_METRICS_EXT : DIAG_METRICS;
 
-  // 健康评分（基准=Top3均值）
-  const top3Data = diagCatTop3[cat] || {};
+  // 健康评分（基准=P85，即前15%水平线）
   let totalScore = 0;
   const scoreMetrics = isExt ? DIAG_METRICS_EXT : DIAG_METRICS;
   const scorePerItem = 100 / scoreMetrics.length;
   for (const mk of scoreMetrics) {
-    const top3Items = top3Data[mk.key] || [];
-    const top3Avg = top3Items.length > 0 ? top3Items.reduce((s, t) => s + (t[mk.key] || 0), 0) / top3Items.length : 0.01;
-    const base = top3Avg || 0.01;
+    const base = p85[mk.key] || 0.01;
     totalScore += Math.min(b.metrics[mk.key] / base, 1.0) * scorePerItem;
   }
   totalScore = Math.round(totalScore);
