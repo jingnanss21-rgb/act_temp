@@ -74,7 +74,7 @@ async function loadActivityDetail() {
   try {
     // 并行加载所有数据
     const [actResult, brandResult, merchantResult, spResult, kaResult] = await Promise.all([
-      fetchAll('tem_activities', '*'),
+      fetchAll('tem_activities', '*', 'report_date.desc'),
       supabaseClient.from('tem_brand_daily')
         .select('brand_id, brand_name, category_l4, store_count, w7_avg_txn_count, w7_mini_program_ratio, w7_store_redeem_rate_uv, report_date')
         .order('report_date', { ascending: false }).limit(5000),
@@ -87,6 +87,17 @@ async function loadActivityDetail() {
     ]);
 
     const allActivities = actResult;
+
+    // 活动去重：同一 activity_id 可能有多个 report_date，只保留最新一条
+    const seenActivityIds = new Set();
+    const uniqueActivities = [];
+    for (const act of allActivities) {
+      if (!seenActivityIds.has(act.activity_id)) {
+        seenActivityIds.add(act.activity_id);
+        uniqueActivities.push(act);
+      }
+    }
+
     const brandRows = brandResult.data || [];
     const merchantRows = merchantResult.data || [];
     const spRows = spResult.data || [];
@@ -125,7 +136,7 @@ async function loadActivityDetail() {
 
     // 合并数据 — 只保留跟进表里有的商户
     detailData = [];
-    for (const act of allActivities) {
+    for (const act of uniqueActivities) {
       const bid = String(act.brand_id);
       if (!trackedBrandIds.has(bid)) continue; // 过滤掉不在跟进表的
 
@@ -192,12 +203,17 @@ async function loadActivityDetail() {
 }
 
 // 分页加载全量数据
-async function fetchAll(table, select) {
+async function fetchAll(table, select, order) {
   let all = [];
   let offset = 0;
   const limit = 1000;
   while (true) {
-    const { data, error } = await supabaseClient.from(table).select(select).range(offset, offset + limit - 1);
+    let query = supabaseClient.from(table).select(select);
+    if (order) {
+      const [col, dir] = order.split('.');
+      query = query.order(col, { ascending: dir !== 'desc' });
+    }
+    const { data, error } = await query.range(offset, offset + limit - 1);
     if (error) throw error;
     all = all.concat(data || []);
     if (!data || data.length < limit) break;
