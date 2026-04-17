@@ -420,12 +420,12 @@ body {
     display: none !important;
   }
 
-  /* 诊断结果区域全宽 */
+  /* 诊断结果区域全宽 + 内边距补偿 @page margin:0 */
   body.printing-diagnosis .print-target {
     width: 100% !important;
     max-width: none !important;
     margin: 0 !important;
-    padding: 0 !important;
+    padding: 10mm 8mm !important;
   }
 
   /* 禁用所有动画和阴影 */
@@ -467,9 +467,9 @@ body {
     print-color-adjust: exact !important;
   }
 
-  /* 页面边距 */
+  /* 页面边距 — margin:0 消除浏览器自动添加的页眉页脚(网址/日期) */
   @page {
-    margin: 12mm 8mm;
+    margin: 0;
     size: A4 landscape;
   }
 
