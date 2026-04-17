@@ -176,7 +176,7 @@ function renderDiagSearch(container) {
             oninput="onDiagInput(this.value)" onfocus="onDiagInput(this.value)">
           <div class="diag-dropdown" id="diag-dropdown"></div>
           <button class="btn-primary" onclick="runDiagnosis()">生成诊断</button>
-          <button class="btn-export" style="display:none" id="diag-export-btn" onclick="exportDiagnosis()">导出诊断报告</button>
+          <button class="btn-export" style="display:none" id="diag-export-btn" onclick="exportDiagnosis()">导出PDF</button>
         </div>
         <div class="diag-mode-tabs" id="diag-mode-tabs">
           <span class="diag-mode-tab active" data-mode="full" onclick="switchDiagMode('full')">完整版</span>
@@ -472,55 +472,38 @@ function renderDiagResult() {
 // ============================================================
 // 健康评分环形图（Canvas）
 // ============================================================
-async function exportDiagnosis() {
-  const btn = document.getElementById('diag-export-btn');
+function exportDiagnosis() {
   const container = document.getElementById('diag-result');
-  if (!container || !btn) return;
+  if (!container) return;
 
-  btn.textContent = '导出中...';
-  btn.disabled = true;
-
+  // 展开活动明细
   const detailBody = document.getElementById('diag-d-body');
   const detailToggle = document.getElementById('diag-d-toggle');
   const wasHidden = detailBody && detailBody.style.display === 'none';
+  if (wasHidden && detailBody) {
+    detailBody.style.display = 'block';
+  }
 
-  try {
-    // 强制禁用所有动画和透明度
-    container.classList.add('export-mode');
+  // 设置打印标题（显示在PDF文件名中）
+  const modeLabel = diagMode === 'external' ? '_对外版' : '';
+  const brandName = diagCurrentBrand?.brand_name || 'report';
+  const origTitle = document.title;
+  document.title = `品牌诊断${modeLabel}_${brandName}_${new Date().toISOString().slice(0,10)}`;
 
-    // 展开活动明细
-    if (wasHidden && detailBody) {
-      detailBody.style.display = 'block';
-    }
+  // 标记打印区域
+  document.body.classList.add('printing-diagnosis');
+  container.classList.add('print-target');
 
-    // 等两帧确保样式生效
-    await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+  window.print();
 
-    const canvas = await html2canvas(container, {
-      scale: 2,
-      useCORS: true,
-      backgroundColor: '#F8FAFC',
-      scrollY: -window.scrollY,
-      windowHeight: container.scrollHeight
-    });
-    const modeLabel = diagMode === 'external' ? '_对外版' : '';
-    const link = document.createElement('a');
-    link.download = `品牌诊断${modeLabel}_${diagCurrentBrand?.brand_name || 'report'}_${new Date().toISOString().slice(0,10)}.png`;
-    link.href = canvas.toDataURL('image/png');
-    link.click();
-  } catch (e) {
-    alert('导出失败，请重试');
-    console.error('导出失败', e);
-  } finally {
-    container.classList.remove('export-mode');
+  // 恢复
+  document.body.classList.remove('printing-diagnosis');
+  container.classList.remove('print-target');
+  document.title = origTitle;
 
-    if (wasHidden && detailBody) {
-      detailBody.style.display = 'none';
-      if (detailToggle) detailToggle.textContent = '展开 ∨';
-    }
-
-    btn.textContent = '导出诊断报告';
-    btn.disabled = false;
+  if (wasHidden && detailBody) {
+    detailBody.style.display = 'none';
+    if (detailToggle) detailToggle.textContent = '展开 ∨';
   }
 }
 
