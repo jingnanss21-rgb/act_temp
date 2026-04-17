@@ -43,13 +43,26 @@ async function initDiagnosis() {
   container.innerHTML = '<div class="loading"><div class="spinner"></div><p>加载品牌诊断数据...</p></div>';
 
   try {
-    const [actRes, bdRes, mcRes] = await Promise.all([
-      supabaseClient.from('tem_v_activity_detail').select('*'),
+    // 分页拉取全量活动数据（Supabase 默认只返回1000行）
+    async function fetchAllRows(table, select) {
+      let all = [], offset = 0, limit = 1000;
+      while (true) {
+        const { data, error } = await supabaseClient.from(table).select(select).range(offset, offset + limit - 1);
+        if (error) throw error;
+        all = all.concat(data || []);
+        if (!data || data.length < limit) break;
+        offset += limit;
+      }
+      return all;
+    }
+
+    const [actData, bdRes, mcRes] = await Promise.all([
+      fetchAllRows('tem_v_activity_detail', '*'),
       supabaseClient.from('tem_brand_daily').select('*').order('report_date', { ascending: false }),
       supabaseClient.from('tem_merchant_contacts').select('brand_id,brand_name,operating_sp,contact_assistant'),
     ]);
 
-    diagActivities = (actRes.data || []).filter(a => a.exposure_uv > 0 && a.exposure_pv > 0);
+    diagActivities = actData.filter(a => a.exposure_uv > 0 && a.exposure_pv > 0);
 
     for (const bd of (bdRes.data || [])) {
       if (!diagBrandDaily[bd.brand_id]) diagBrandDaily[bd.brand_id] = bd;
