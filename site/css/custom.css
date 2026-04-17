@@ -30,6 +30,7 @@ body {
   min-height: 100vh;
   max-width: 1440px;
   padding: 0 16px;
+  overflow-x: visible;
 }
 
 /* Header - 浅色 */
@@ -746,13 +747,14 @@ body {
 
 /* 第二层：Overlay + Drawer */
 .bp-overlay {
-  position: fixed; inset: 0; background: rgba(0,0,0,0);
+  position: fixed; top: 0; left: 0; right: 0; bottom: 0; width: 100vw; height: 100vh;
+  background: rgba(0,0,0,0);
   z-index: 200; transition: background 0.3s;
 }
 .bp-overlay.show { background: rgba(0,0,0,0.3); }
 
 .bp-drawer {
-  position: fixed; top: 0; right: -440px; bottom: 0; width: 440px;
+  position: fixed; top: 0; right: -440px; bottom: 0; width: 440px; height: 100vh;
   background: var(--bg-white); z-index: 201; overflow-y: auto;
   box-shadow: -4px 0 20px rgba(0,0,0,0.1); transition: right 0.3s ease;
 }
@@ -824,7 +826,8 @@ body {
 
 /* 第三层：模态弹窗 */
 .bp-modal {
-  position: fixed; inset: 0; z-index: 300;
+  position: fixed; top: 0; left: 0; right: 0; bottom: 0; width: 100vw; height: 100vh;
+  z-index: 300;
   display: flex; align-items: center; justify-content: center;
   background: rgba(0,0,0,0); transition: background 0.3s;
 }
