@@ -264,7 +264,7 @@ function runDiagnosis() {
     category: brandDaily.category_l4 || '未知',
   };
 
-  diagSelectedMetric = 'exposure_claim';
+  diagSelectedMetric = diagMode === 'external' ? 'claim_redeem' : 'exposure_claim';
 
   const totalExposurePv = brandActivities.reduce((s, a) => s + (a.exposure_pv || 0), 0);
   const totalClaimPv = brandActivities.reduce((s, a) => s + (a.claim_pv || 0), 0);
@@ -287,7 +287,8 @@ function runDiagnosis() {
   // 短板检测——自动选中最弱指标
   const cat = diagCurrentBrand.category;
   const meds = diagCatMedians[cat] || {};
-  const weakMetrics = DIAG_METRICS.filter(mk => diagCurrentBrand.metrics[mk.key] < (meds[mk.key] || 0));
+  const runMetrics = diagMode === 'external' ? DIAG_METRICS_EXT : DIAG_METRICS;
+  const weakMetrics = runMetrics.filter(mk => diagCurrentBrand.metrics[mk.key] < (meds[mk.key] || 0));
   const worstMetric = weakMetrics.length > 0
     ? weakMetrics.reduce((a, c) => ((meds[c.key] || 0) - diagCurrentBrand.metrics[c.key]) > ((meds[a.key] || 0) - diagCurrentBrand.metrics[a.key]) ? c : a)
     : null;
