@@ -273,8 +273,8 @@ def sync_brand_daily(client):
             continue
 
         try:
-            rows = read_target_sheet(file_id)
-            print(f"    获取到 {len(rows)} 行品牌数据")
+            rows = read_target_sheet(file_id, header_row=1, data_start_row=4)
+            print(f"    获取到 {len(rows)} 行品牌数据, {len(rows[0]) if rows else 0} 列")
 
             for row in rows:
                 brand_id = _safe_str(row.get("品牌ID", ""))

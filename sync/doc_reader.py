@@ -82,27 +82,52 @@ def download_xlsx(url: str, save_path: str = None) -> str:
     return save_path
 
 
-def parse_xlsx_rows(xlsx_path: str, sheet_index: int = 0) -> list[dict]:
+def parse_xlsx_rows(xlsx_path: str, sheet_index: int = 0, header_row: int = 1,
+                    data_start_row: int = None, max_col: int = None) -> list[dict]:
     """
     解析 xlsx 文件，返回 [{header: value, ...}, ...]
-    第一行为表头
+    header_row: 表头所在行号（从1开始）
+    data_start_row: 数据起始行号（默认 header_row+1）
+    max_col: 最大列数（默认从表头行自动检测）
+
+    注意：不依赖 ws.dimensions / iter_rows，用 ws.cell() 按坐标读取，
+    避免 xlsx dimension 标签截断稀疏列的问题。
     """
-    wb = load_workbook(xlsx_path, read_only=True, data_only=True)
+    from openpyxl.utils import get_column_letter
+    wb = load_workbook(xlsx_path, read_only=False, data_only=True)
     ws = wb.worksheets[sheet_index]
-    rows = list(ws.iter_rows(values_only=True))
-    wb.close()
-    if len(rows) < 2:
+
+    if data_start_row is None:
+        data_start_row = header_row + 1
+
+    # 从表头行按坐标扫描列名（表头行通常是最宽的）
+    if max_col is None:
+        max_col = 200  # 扫描上限
+    headers = {}
+    for col in range(1, max_col + 1):
+        v = ws.cell(header_row, col).value
+        if v:
+            headers[col] = str(v).strip()
+
+    if not headers:
+        wb.close()
         return []
-    headers = [str(h).strip() if h else f"col_{i}" for i, h in enumerate(rows[0])]
+
+    actual_max_col = max(headers.keys())
+
+    # 按坐标读数据行
     result = []
-    for row in rows[1:]:
-        if all(v is None for v in row):
+    for row_num in range(data_start_row, (ws.max_row or 1000) + 1):
+        # 检查是否空行（用前几列判断）
+        first_vals = [ws.cell(row_num, c).value for c in list(headers.keys())[:5]]
+        if all(v is None for v in first_vals):
             continue
         record = {}
-        for i, val in enumerate(row):
-            if i < len(headers):
-                record[headers[i]] = val
+        for col, name in headers.items():
+            record[name] = ws.cell(row_num, col).value
         result.append(record)
+
+    wb.close()
     return result
 
 
@@ -194,13 +219,13 @@ def read_index_table_with_links(file_id: str) -> list[dict]:
     return result
 
 
-def read_target_sheet(file_id: str) -> list[dict]:
+def read_target_sheet(file_id: str, header_row: int = 1, data_start_row: int = None) -> list[dict]:
     """
     读取目标文档（普通 sheet 或 smartsheet 导出后的 xlsx），
     返回解析后的行数据
     """
     url = export_file(file_id)
     xlsx_path = download_xlsx(url)
-    rows = parse_xlsx_rows(xlsx_path)
+    rows = parse_xlsx_rows(xlsx_path, header_row=header_row, data_start_row=data_start_row)
     os.unlink(xlsx_path)
     return rows
