@@ -34,7 +34,7 @@ from supabase_writer import get_client, upsert_batch
 # 文档 ID 配置
 # ============================================================
 DOC_IDS = {
-    "activity_nav": "DWVhLdVVyRVJKQm1X",   # 表1: 日报活动导览
+    "activity_nav": "DWWhYU3FrWXhuSHhu",   # 表1: 日报活动导览（新链接）
     "merchant":     "DWUxvdFNHQXpWd0ZO",    # 表2: 商户对接（普通sheet，完整9列）
     "sp":           "DWU1oR0JHRUhqZ1l3",    # 表3: 服务商分工
     "ka":           "DWXp3ZGt1VFdPTHZ4",    # 表4: KA分工

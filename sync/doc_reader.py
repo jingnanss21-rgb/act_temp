@@ -178,11 +178,11 @@ def read_index_table_with_links(file_id: str) -> list[dict]:
     hyperlinks = extract_hyperlinks(xlsx_path)
     rows = parse_xlsx_rows(xlsx_path)
 
-    # 把超链接关联到行
+    # 把超链接关联到行——尝试 A 列和 B 列
     result = []
     for i, row in enumerate(rows):
-        cell_ref = f"A{i + 2}"  # A2 开始（A1 是表头）
-        link = hyperlinks.get(cell_ref, "")
+        row_num = i + 2  # 第2行开始（第1行是表头）
+        link = hyperlinks.get(f"A{row_num}", "") or hyperlinks.get(f"B{row_num}", "")
         first_val = list(row.values())[0] if row else ""
         result.append({
             "text": str(first_val) if first_val else "",
