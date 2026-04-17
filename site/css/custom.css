@@ -405,6 +405,15 @@ body {
 /* Export canvas area */
 #export-canvas-area { position: absolute; left: -9999px; top: -9999px; }
 
+/* 导出模式：强制禁用所有动画和透明度 */
+.export-mode,
+.export-mode * {
+  animation: none !important;
+  opacity: 1 !important;
+  transform: none !important;
+  transition: none !important;
+}
+
 /* Section title */
 .section-title { font-size: 18px; font-weight: 600; color: var(--text-dark); padding: 20px 32px 0; margin: 0; }
 
@@ -863,6 +872,38 @@ body {
 .diag-page { padding: 16px 24px; }
 .diag-search-area { margin-bottom: 20px; }
 .diag-search-box { display: flex; gap: 12px; align-items: center; position: relative; max-width: 600px; }
+
+/* 完整版/对外版 子Tab */
+.diag-mode-tabs {
+  display: flex;
+  gap: 0;
+  margin-top: 12px;
+}
+.diag-mode-tab {
+  padding: 6px 20px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #64748B;
+  border: 1px solid #E2E8F0;
+  cursor: pointer;
+  transition: all 0.2s;
+  user-select: none;
+}
+.diag-mode-tab:first-child {
+  border-radius: 6px 0 0 6px;
+}
+.diag-mode-tab:last-child {
+  border-radius: 0 6px 6px 0;
+  border-left: none;
+}
+.diag-mode-tab.active {
+  background: #2563EB;
+  color: #fff;
+  border-color: #2563EB;
+}
+.diag-mode-tab:hover:not(.active) {
+  background: #F1F5F9;
+}
 .diag-input { flex: 1; padding: 10px 16px; border: 2px solid #E2E8F0; border-radius: 8px; font-size: 14px; outline: none; transition: border-color 0.2s; }
 .diag-input:focus { border-color: #2563EB; }
 .diag-dropdown { position: absolute; top: 100%; left: 0; right: 80px; background: #fff; border: 1px solid #E2E8F0; border-radius: 8px; max-height: 300px; overflow-y: auto; z-index: 100; display: none; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }

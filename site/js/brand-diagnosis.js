@@ -18,11 +18,17 @@ let diagAllBrands = [];
 let diagCurrentBrand = null;
 let diagSelectedMetric = 'exposure_claim';
 let diagViewMode = 'card';
+let diagMode = 'full'; // 'full' | 'external'
 
 const DIAG_METRICS = [
   { key: 'exposure_claim', label: '曝光领取率', desc: '券吸引力' },
   { key: 'claim_redeem', label: '领取核销率', desc: '券转化力' },
   { key: 'exposure_redeem', label: '曝光核销率', desc: '全链路效率' },
+  { key: 'store_redeem', label: '到店核销率', desc: '到店转化力' },
+];
+
+const DIAG_METRICS_EXT = [
+  { key: 'claim_redeem', label: '领取核销率', desc: '券转化力' },
   { key: 'store_redeem', label: '到店核销率', desc: '到店转化力' },
 ];
 
@@ -162,6 +168,10 @@ function renderDiagSearch(container) {
           <button class="btn-primary" onclick="runDiagnosis()">生成诊断</button>
           <button class="btn-export" style="display:none" id="diag-export-btn" onclick="exportDiagnosis()">导出诊断报告</button>
         </div>
+        <div class="diag-mode-tabs" id="diag-mode-tabs">
+          <span class="diag-mode-tab active" data-mode="full" onclick="switchDiagMode('full')">完整版</span>
+          <span class="diag-mode-tab" data-mode="external" onclick="switchDiagMode('external')">对外版</span>
+        </div>
       </div>
       <div id="diag-result"></div>
     </div>
@@ -192,6 +202,18 @@ function onDiagInput(val) {
 function selectDiagBrand(bid, name) {
   document.getElementById('diag-input').value = `${bid} — ${name}`;
   document.getElementById('diag-dropdown').style.display = 'none';
+}
+
+function switchDiagMode(mode) {
+  diagMode = mode;
+  document.querySelectorAll('.diag-mode-tab').forEach(t => {
+    t.classList.toggle('active', t.dataset.mode === mode);
+  });
+  // 对外版默认指标改为领取核销率
+  if (mode === 'external' && (diagSelectedMetric === 'exposure_claim' || diagSelectedMetric === 'exposure_redeem')) {
+    diagSelectedMetric = 'claim_redeem';
+  }
+  if (diagCurrentBrand) renderDiagResult();
 }
 
 // ============================================================
@@ -273,19 +295,23 @@ function renderDiagResult() {
   const meds = diagCatMedians[cat] || {};
   const p25 = diagCatP25[cat] || {};
   const best = diagCatBest[cat] || {};
+  const isExt = diagMode === 'external';
+  const metrics = isExt ? DIAG_METRICS_EXT : DIAG_METRICS;
 
   // 健康评分（基准=P25）
   let totalScore = 0;
-  for (const mk of DIAG_METRICS) {
+  const scoreMetrics = isExt ? DIAG_METRICS_EXT : DIAG_METRICS;
+  const scorePerItem = 100 / scoreMetrics.length;
+  for (const mk of scoreMetrics) {
     const base = p25[mk.key] || 0.01;
-    totalScore += Math.min(b.metrics[mk.key] / base, 1.0) * 25;
+    totalScore += Math.min(b.metrics[mk.key] / base, 1.0) * scorePerItem;
   }
   totalScore = Math.round(totalScore);
 
   const scoreColor = totalScore >= 80 ? '#16A34A' : totalScore >= 60 ? '#F59E0B' : '#DC2626';
   const scoreLabel = totalScore >= 80 ? '优秀' : totalScore >= 60 ? '待优化' : '需关注';
 
-  const weakMetrics = DIAG_METRICS.filter(mk => b.metrics[mk.key] < (meds[mk.key] || 0));
+  const weakMetrics = metrics.filter(mk => b.metrics[mk.key] < (meds[mk.key] || 0));
   const worstMetric = weakMetrics.length > 0
     ? weakMetrics.reduce((a, c) => ((meds[c.key] || 0) - b.metrics[c.key]) > ((meds[a.key] || 0) - b.metrics[a.key]) ? c : a)
     : null;
@@ -302,10 +328,10 @@ function renderDiagResult() {
             <div style="font-size:11px;color:#94A3B8;margin-bottom:2px">活动数</div>
             <div style="font-size:20px;font-weight:700;color:#1E293B">${b.activities.length}</div>
           </div>
-          <div style="flex:1;background:#EFF6FF;border:1px solid #DBEAFE;border-radius:8px;padding:10px 14px;text-align:center">
+          ${!isExt ? `<div style="flex:1;background:#EFF6FF;border:1px solid #DBEAFE;border-radius:8px;padding:10px 14px;text-align:center">
             <div style="font-size:11px;color:#94A3B8;margin-bottom:2px">曝光</div>
             <div style="font-size:20px;font-weight:700;color:#1E293B">${fmtNum(b.totals.exposure_pv)}</div>
-          </div>
+          </div>` : ''}
           <div style="flex:1;background:#F0FDF4;border:1px solid #DCFCE7;border-radius:8px;padding:10px 14px;text-align:center">
             <div style="font-size:11px;color:#94A3B8;margin-bottom:2px">领取</div>
             <div style="font-size:20px;font-weight:700;color:#1E293B">${fmtNum(b.totals.claim_pv)}</div>
@@ -341,17 +367,19 @@ function renderDiagResult() {
         const lossRate = (r) => isNaN(r) ? NaN : 1 - r;
         const fp = (v) => isNaN(v) ? '-' : (v * 100).toFixed(1) + '%';
 
-        const nodes = [
-          { label: '曝光人数', value: fmtNum(exposurePv), unit: '人', opacity: '' },
-          { label: '领取人数', value: fmtNum(claimPv), unit: '人', opacity: 'CC' },
-          { label: '到店人数', value: storeVisit !== null ? fmtNum(storeVisit) : '-', unit: '人*预估', opacity: 'AA' },
-          { label: '核销人数', value: fmtNum(redeemPv), unit: '人', opacity: '88' },
+        const allNodes = [
+          { label: '曝光人数', value: fmtNum(exposurePv), unit: '人', opacity: '', ext: false },
+          { label: '领取人数', value: fmtNum(claimPv), unit: '人', opacity: isExt ? '' : 'CC', ext: true },
+          { label: '到店人数', value: storeVisit !== null ? fmtNum(storeVisit) : '-', unit: '人*预估', opacity: isExt ? 'CC' : 'AA', ext: true },
+          { label: '核销人数', value: fmtNum(redeemPv), unit: '人', opacity: isExt ? '88' : '88', ext: true },
         ];
-        const arrows = [
-          { rateLabel: '曝光领取率', rate: fp(expClm), loss: fp(lossRate(expClm)) },
-          { rateLabel: '领取到店率*预估', rate: fp(clmToStore), loss: fp(lossRate(clmToStore)) },
-          { rateLabel: '到店核销率', rate: fp(storeRdm), loss: fp(lossRate(storeRdm)) },
+        const allArrows = [
+          { rateLabel: '曝光领取率', rate: fp(expClm), loss: fp(lossRate(expClm)), ext: false },
+          { rateLabel: '领取到店率*预估', rate: fp(clmToStore), loss: fp(lossRate(clmToStore)), ext: true },
+          { rateLabel: '到店核销率', rate: fp(storeRdm), loss: fp(lossRate(storeRdm)), ext: true },
         ];
+        const nodes = isExt ? allNodes.filter(n => n.ext !== false) : allNodes;
+        const arrows = isExt ? allArrows.filter(a => a.ext !== false) : allArrows;
 
         let html = '<div class="hfunnel-wrap">';
         nodes.forEach((n, i) => {
@@ -377,7 +405,7 @@ function renderDiagResult() {
 
       <!-- 下：过程指标对比 4列网格 -->
       <div class="hfunnel-metrics-grid">
-        ${DIAG_METRICS.map(mk => {
+        ${metrics.map(mk => {
           const val = b.metrics[mk.key];
           const med = meds[mk.key] || 0;
           const isBetter = val >= med;
@@ -445,19 +473,16 @@ async function exportDiagnosis() {
   const wasHidden = detailBody && detailBody.style.display === 'none';
 
   try {
-    const cards = container.querySelectorAll('.diag-card');
-    cards.forEach(card => {
-      card.style.animation = 'none';
-      card.style.opacity = '1';
-      card.style.transform = 'none';
-    });
+    // 强制禁用所有动画和透明度
+    container.classList.add('export-mode');
 
+    // 展开活动明细
     if (wasHidden && detailBody) {
       detailBody.style.display = 'block';
-      detailBody.style.animation = 'none';
     }
 
-    await new Promise(r => requestAnimationFrame(r));
+    // 等两帧确保样式生效
+    await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
 
     const canvas = await html2canvas(container, {
       scale: 2,
@@ -466,20 +491,16 @@ async function exportDiagnosis() {
       scrollY: -window.scrollY,
       windowHeight: container.scrollHeight
     });
+    const modeLabel = diagMode === 'external' ? '_对外版' : '';
     const link = document.createElement('a');
-    link.download = `品牌诊断_${diagCurrentBrand?.brand_name || 'report'}_${new Date().toISOString().slice(0,10)}.png`;
+    link.download = `品牌诊断${modeLabel}_${diagCurrentBrand?.brand_name || 'report'}_${new Date().toISOString().slice(0,10)}.png`;
     link.href = canvas.toDataURL('image/png');
     link.click();
   } catch (e) {
     alert('导出失败，请重试');
     console.error('导出失败', e);
   } finally {
-    const cards = container.querySelectorAll('.diag-card');
-    cards.forEach(card => {
-      card.style.animation = '';
-      card.style.opacity = '';
-      card.style.transform = '';
-    });
+    container.classList.remove('export-mode');
 
     if (wasHidden && detailBody) {
       detailBody.style.display = 'none';
@@ -614,7 +635,7 @@ function renderBenchmark() {
     <div class="diag-c-header">
       <h3 class="diag-section-title" style="margin:0">🏆 行业标杆参考（${cat} · ${mk.label} Top3）</h3>
       <div class="diag-c-tabs">
-        ${DIAG_METRICS.map(m => `<span class="dc-tab ${m.key === diagSelectedMetric ? 'active' : ''}"
+        ${(diagMode === 'external' ? DIAG_METRICS_EXT : DIAG_METRICS).map(m => `<span class="dc-tab ${m.key === diagSelectedMetric ? 'active' : ''}"
           onclick="switchDiagMetric('${m.key}')">${m.label}</span>`).join('')}
       </div>
     </div>
@@ -742,6 +763,7 @@ function renderDiagActivities() {
   const b = diagCurrentBrand;
   const cat = b.category;
   const meds = diagCatMedians[cat] || {};
+  const isExt = diagMode === 'external';
   const activities = [...b.activities].sort((a, c) => (c.exposure_pv || 0) - (a.exposure_pv || 0));
   const storeRate = b.metrics.store_redeem;
 
@@ -750,15 +772,16 @@ function renderDiagActivities() {
     const crr = a.claim_pv > 0 ? a.redeem_pv / a.claim_pv : 0;
     const err = a.exposure_pv > 0 ? a.redeem_pv / a.exposure_pv : 0;
 
-    const actMetrics = [
-      { label: '曝光领取率', val: ecr, med: meds.exposure_claim || 0 },
-      { label: '领取核销率', val: crr, med: meds.claim_redeem || 0 },
-      { label: '曝光核销率', val: err, med: meds.exposure_redeem || 0 },
-      { label: '到店核销率', val: storeRate, med: meds.store_redeem || 0 },
+    const allActMetrics = [
+      { label: '曝光领取率', val: ecr, med: meds.exposure_claim || 0, ext: false },
+      { label: '领取核销率', val: crr, med: meds.claim_redeem || 0, ext: true },
+      { label: '曝光核销率', val: err, med: meds.exposure_redeem || 0, ext: false },
+      { label: '到店核销率', val: storeRate, med: meds.store_redeem || 0, ext: true },
     ];
+    const actMetrics = isExt ? allActMetrics.filter(m => m.ext) : allActMetrics;
     const weakActMetrics = actMetrics.filter(m => m.val < m.med);
     const worstActMetric = weakActMetrics.length > 0
-      ? weakActMetrics.reduce((worst, curr) => (curr.val / (curr.med || 1)) < (worst.val / (worst.med || 1)) ? curr : worst)
+      ? weakActMetrics.reduce((worst, curr) => ((curr.med || 0) - curr.val) > ((worst.med || 0) - worst.val) ? curr : worst)
       : null;
 
     function rateRow(label, val, med) {
@@ -785,14 +808,14 @@ function renderDiagActivities() {
     return `<div class="diag-activity-card">
       <div class="diag-act-card-name">${a.activity_name}</div>
       <div class="diag-act-blocks">
-        <div class="diag-act-block diag-act-block-exposure">
+        ${!isExt ? `<div class="diag-act-block diag-act-block-exposure">
           <div class="diag-act-block-label">曝光</div>
           <div class="diag-act-block-val">${fmtNum(a.exposure_pv)}</div>
         </div>
         <div class="diag-act-conv-arrow">
           <span class="diag-act-conv-rate">${fmtPctDiag(ecr)}</span>
           <span class="diag-act-conv-icon">→</span>
-        </div>
+        </div>` : ''}
         <div class="diag-act-block diag-act-block-claim">
           <div class="diag-act-block-label">领取</div>
           <div class="diag-act-block-val">${fmtNum(a.claim_pv)}</div>
@@ -806,9 +829,7 @@ function renderDiagActivities() {
           <div class="diag-act-block-val">${fmtNum(a.redeem_pv)}</div>
         </div>
       </div>
-      ${rateRow('曝光领取率', ecr, meds.exposure_claim || 0)}
-      ${rateRow('领取核销率', crr, meds.claim_redeem || 0)}
-      ${rateRow('曝光核销率', err, meds.exposure_redeem || 0)}
+      ${actMetrics.map(m => rateRow(m.label, m.val, m.med)).join('')}
       ${rateRow('到店核销率', storeRate, meds.store_redeem || 0)}
     </div>`;
   }).join('');
