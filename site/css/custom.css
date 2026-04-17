@@ -469,8 +469,55 @@ body {
 
   /* 页面边距 */
   @page {
-    margin: 15mm 10mm;
-    size: A4;
+    margin: 12mm 8mm;
+    size: A4 landscape;
+  }
+
+  /* body 和容器 */
+  body.printing-diagnosis {
+    max-width: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+  body.printing-diagnosis .diag-page {
+    padding: 0 !important;
+  }
+  body.printing-diagnosis #brand-diagnosis-section {
+    display: block !important;
+  }
+
+  /* 区域A：强制水平布局 */
+  body.printing-diagnosis .diag-area-a {
+    display: flex !important;
+    flex-direction: row !important;
+    align-items: flex-start !important;
+    gap: 24px;
+  }
+  body.printing-diagnosis .diag-a-left {
+    flex: 1 !important;
+  }
+  body.printing-diagnosis .diag-a-right {
+    width: 160px !important;
+    flex-shrink: 0 !important;
+  }
+
+  /* 区域B：漏斗水平不换行 */
+  body.printing-diagnosis .hfunnel-wrap {
+    flex-wrap: nowrap !important;
+  }
+  body.printing-diagnosis .hfunnel-node {
+    flex: 1 1 0% !important;
+  }
+  body.printing-diagnosis .hfunnel-metrics-grid {
+    flex-wrap: nowrap !important;
+  }
+  body.printing-diagnosis .hmetric-card {
+    flex: 1 !important;
+  }
+
+  /* 区域B外框 */
+  body.printing-diagnosis .diag-area-b {
+    display: block !important;
   }
 }
 
