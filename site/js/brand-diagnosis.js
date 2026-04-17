@@ -298,12 +298,15 @@ function renderDiagResult() {
   const isExt = diagMode === 'external';
   const metrics = isExt ? DIAG_METRICS_EXT : DIAG_METRICS;
 
-  // 健康评分（基准=P25）
+  // 健康评分（基准=Top3均值）
+  const top3Data = diagCatTop3[cat] || {};
   let totalScore = 0;
   const scoreMetrics = isExt ? DIAG_METRICS_EXT : DIAG_METRICS;
   const scorePerItem = 100 / scoreMetrics.length;
   for (const mk of scoreMetrics) {
-    const base = p25[mk.key] || 0.01;
+    const top3Items = top3Data[mk.key] || [];
+    const top3Avg = top3Items.length > 0 ? top3Items.reduce((s, t) => s + (t[mk.key] || 0), 0) / top3Items.length : 0.01;
+    const base = top3Avg || 0.01;
     totalScore += Math.min(b.metrics[mk.key] / base, 1.0) * scorePerItem;
   }
   totalScore = Math.round(totalScore);
