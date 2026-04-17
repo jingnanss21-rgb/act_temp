@@ -1122,13 +1122,15 @@ body {
 
 /* 下方指标卡片网格 */
 .hfunnel-metrics-grid {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 14px;
+  display: flex;
+  width: 100%;
+  gap: 16px;
   margin-top: 16px;
   margin-bottom: 0;
 }
 .hmetric-card {
+  flex: 1;
+  min-width: 0;
   background: #fff;
   border: 1px solid #E2E8F0;
   border-left: 3px solid transparent;
@@ -1209,13 +1211,15 @@ body {
 /* 响应式 */
 @media (max-width: 1200px) {
   .hfunnel-wrap { flex-wrap: wrap; justify-content: center; }
-  .hfunnel-metrics-grid { grid-template-columns: repeat(2, 1fr); }
+  .hfunnel-metrics-grid { flex-wrap: wrap; }
+  .hfunnel-metrics-grid .hmetric-card { flex: 1 1 calc(50% - 8px); }
 }
 @media (max-width: 640px) {
   .hfunnel-wrap { flex-direction: column; }
   .hfunnel-node { width: 100%; }
   .hfunnel-arrow { width: auto; flex-direction: row; gap: 8px; }
-  .hfunnel-metrics-grid { grid-template-columns: 1fr; }
+  .hfunnel-metrics-grid { flex-direction: column; }
+  .hfunnel-metrics-grid .hmetric-card { flex: none; width: 100%; }
 }
 
 /* 区域B布局 */
