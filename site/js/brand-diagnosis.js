@@ -357,12 +357,41 @@ function renderDiagResult() {
   const metrics = isExt ? DIAG_METRICS_EXT : DIAG_METRICS;
 
   // 健康评分（基准=P85，即前15%水平线）
+  // 评分维度：价格力 + 曝光领取率 + 领取核销率 + 到店核销率
   let totalScore = 0;
-  const scoreMetrics = isExt ? DIAG_METRICS_EXT : DIAG_METRICS;
-  const scorePerItem = 100 / scoreMetrics.length;
-  for (const mk of scoreMetrics) {
+  const SCORE_METRICS = [
+    { key: 'exposure_claim', label: '曝光领取率' },
+    { key: 'claim_redeem', label: '领取核销率' },
+    { key: 'store_redeem', label: '到店核销率' },
+  ];
+  // 价格力评分（单独计算，P85为基准）
+  let brandPricePower = 0, ppCount = 0;
+  for (const a of b.activities) {
+    if (a.price_power && a.price_power > 0) { brandPricePower += a.price_power; ppCount++; }
+  }
+  brandPricePower = ppCount > 0 ? brandPricePower / ppCount : 0;
+  // 类目价格力P85
+  const catPPVals = (function() {
+    const acts = diagActivities.filter(a => {
+      const c = a.category_name || (diagBrandDaily[a.brand_id] || {}).category_l4;
+      return c === cat && a.price_power && a.price_power > 0;
+    });
+    return acts.map(a => a.price_power).sort((a, b2) => a - b2);
+  })();
+  const ppP85 = catPPVals.length > 0 ? catPPVals[Math.floor(catPPVals.length * 0.85)] : 1;
+
+  const scoreItems = 4; // 价格力 + 3 metrics
+  const scorePerItem = 100 / scoreItems;
+  // 价格力得分
+  totalScore += Math.min(brandPricePower / (ppP85 || 1), 1.0) * scorePerItem;
+  // 其他3项
+  const activeScoreMetrics = isExt
+    ? SCORE_METRICS.filter(m => m.key !== 'exposure_claim')
+    : SCORE_METRICS;
+  const remainPer = (scoreItems - 1) * scorePerItem / activeScoreMetrics.length;
+  for (const mk of activeScoreMetrics) {
     const base = p85[mk.key] || 0.01;
-    totalScore += Math.min(b.metrics[mk.key] / base, 1.0) * scorePerItem;
+    totalScore += Math.min(b.metrics[mk.key] / base, 1.0) * remainPer;
   }
   totalScore = Math.round(totalScore);
 
@@ -572,14 +601,15 @@ function exportDiagnosis() {
 
 function renderScoreRing(score, color, label) {
   const wrap = document.getElementById('diag-score-ring');
-  wrap.innerHTML = `<canvas id="score-canvas" width="160" height="160"></canvas>
+  wrap.innerHTML = `<canvas id="score-canvas" width="320" height="320" style="width:160px;height:160px"></canvas>
     <div class="score-text"><span class="score-num" style="color:${color}">${score}</span><span class="score-100">/100</span></div>
     <div class="score-label" style="color:${color}">${label}</div>
-    <div class="score-desc">综合4项指标相对业态的表现</div>`;
+    <div class="score-desc">价格力·曝光领取·领取核销·到店核销</div>`;
 
   const canvas = document.getElementById('score-canvas');
   const ctx = canvas.getContext('2d');
-  const cx = 80, cy = 80, r = 65, lw = 12;
+  const dpr = 2;
+  const cx = 80 * dpr, cy = 80 * dpr, r = 65 * dpr, lw = 12 * dpr;
 
   ctx.beginPath();
   ctx.arc(cx, cy, r, 0, Math.PI * 2);

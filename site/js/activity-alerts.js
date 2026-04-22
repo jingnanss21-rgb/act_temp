@@ -150,43 +150,32 @@ function renderAlerts() {
   const assistants = [...new Set(allItems.map(a => a.contact_assistant).filter(v => v && v !== '-'))].sort();
   const sps = [...new Set(allItems.map(a => a.operating_sp).filter(v => v && v !== '-'))].sort();
 
-  let html = `<div class="alert-page">
-    <h2 class="section-title">⚠️ 活动预警</h2>
-    <p style="margin:4px 0 16px;font-size:13px;color:var(--text-muted)">
-      监控活动到期和库存耗尽风险，红色 ≤3天，黄色 4-7天
-    </p>
-
+  let html = `<div class="alert-page" style="padding:16px 32px">
     <!-- 筛选栏 -->
-    <div class="filter-bar" style="margin-bottom:16px;padding:0">
-      <div class="filter-left">
-        <div class="multi-select-wrap" id="alert-ms-assistant"></div>
-        <div class="multi-select-wrap" id="alert-ms-sp"></div>
-      </div>
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px">
+      <div class="multi-select-wrap" id="alert-ms-assistant"></div>
+      <div class="multi-select-wrap" id="alert-ms-sp"></div>
+      <span style="margin-left:auto;font-size:12px;color:#94A3B8">🔴 ≤3天 &nbsp; 🟡 4-7天 &nbsp; 共${alertsData.length}个活动</span>
     </div>
 
     <!-- 汇总卡片 -->
     <div class="alert-summary">
       <div class="alert-summary-card" style="border-left:4px solid #DC2626">
-        <h3>🔴 紧急预警</h3>
+        <h3>🔴 紧急（≤3天）</h3>
         <div class="alert-count ${(redExpiry + redStock) > 0 ? 'red' : 'green'}">${redExpiry + redStock}</div>
         <div style="font-size:12px;color:#94A3B8">${redExpiry}个到期 + ${redStock}个库存</div>
       </div>
       <div class="alert-summary-card" style="border-left:4px solid #D97706">
-        <h3>🟡 关注预警</h3>
+        <h3>🟡 关注（4-7天）</h3>
         <div class="alert-count ${(yellowExpiry + yellowStock) > 0 ? 'yellow' : 'green'}">${yellowExpiry + yellowStock}</div>
         <div style="font-size:12px;color:#94A3B8">${yellowExpiry}个到期 + ${yellowStock}个库存</div>
-      </div>
-      <div class="alert-summary-card" style="border-left:4px solid #16A34A">
-        <h3>📊 监控总量</h3>
-        <div class="alert-count green">${alertsData.length}</div>
-        <div style="font-size:12px;color:#94A3B8">活动总数</div>
       </div>
     </div>
 
     <!-- 两栏详情 -->
     <div class="alert-two-col">
       <div class="alert-col">
-        <div class="alert-col-header">⏰ 到期预警 (${expiryAlerts.length})</div>
+        <div class="alert-col-header">⏰ 活动到期预警 · 结束日期距今 ≤7天 (${expiryAlerts.length})</div>
         <div class="alert-col-body">
           ${expiryAlerts.length === 0 ? '<div class="alert-empty">暂无到期预警 🎉</div>' : ''}
           ${expiryAlerts.map(a => `
@@ -206,7 +195,7 @@ function renderAlerts() {
       </div>
 
       <div class="alert-col">
-        <div class="alert-col-header">📦 库存预警 (${stockAlerts.length})</div>
+        <div class="alert-col-header">📦 库存耗尽预警 · 按日均消耗预计 ≤7天耗尽 (${stockAlerts.length})</div>
         <div class="alert-col-body">
           ${stockAlerts.length === 0 ? '<div class="alert-empty">暂无库存预警 🎉</div>' : ''}
           ${stockAlerts.map(a => `
