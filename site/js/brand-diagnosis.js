@@ -115,14 +115,12 @@ function computeCategoryStats() {
     const bd = diagBrandDaily[a.brand_id];
     const storeRateRaw = a.store_redeem_rate_uv != null ? a.store_redeem_rate_uv : (bd ? bd.w7_store_redeem_rate_uv : null);
 
-    // V2.1: 用真实领取到店率算到店人数，以核销UV为准修正到店核销率
+    // V2.1: 到店核销率直接用DB真实值，到店人数用倒推预估
+    const storeRedeem = parseStoreRate(storeRateRaw);
     const claimToStoreRate = parseStoreRate(a.claim_to_store_rate_uv);
-    const cUv = a.claim_uv || 0;
     const rUv = a.redeem_uv || 0;
-    const storeVisitUv = (!isNaN(claimToStoreRate) && claimToStoreRate > 0 && cUv > 0)
-      ? Math.round(cUv * claimToStoreRate) : null;
-    const correctedStoreRedeem = (storeVisitUv !== null && storeVisitUv > 0)
-      ? rUv / storeVisitUv : parseStoreRate(storeRateRaw);
+    const storeVisitUv = (!isNaN(storeRedeem) && storeRedeem > 0 && rUv > 0)
+      ? Math.round(rUv / storeRedeem) : null;
 
     const item = {
       ...a,
@@ -130,7 +128,7 @@ function computeCategoryStats() {
       exposure_claim: a.claim_pv / a.exposure_pv,
       claim_redeem: a.redeem_pv / a.claim_pv,
       exposure_redeem: a.redeem_pv / a.exposure_pv,
-      store_redeem: correctedStoreRedeem,
+      store_redeem: storeRedeem,
       claim_to_store_rate: claimToStoreRate,
       store_visit_uv: storeVisitUv,
     };
@@ -303,23 +301,18 @@ function runDiagnosis() {
   const totalClaimUv = brandActivities.reduce((s, a) => s + (a.claim_uv || 0), 0);
   const totalRedeemUv = brandActivities.reduce((s, a) => s + (a.redeem_uv || 0), 0);
 
-  // V2.1: 用真实领取到店率，到店人数=预估，到店核销率以核销UV为准修正
-  let claimToStoreRate = NaN;
+  // V2.1: 到店核销率直接用DB真实值（品牌级加权平均）
+  // 按核销UV加权: sum(redeem_uv_i * store_rate_i) / sum(redeem_uv_i)
+  let weightedStoreSum = 0, weightedStoreDenom = 0;
   for (const a of brandActivities) {
-    const r = parseStoreRate(a.claim_to_store_rate_uv);
-    if (!isNaN(r) && r > 0) { claimToStoreRate = r; break; }
-  }
-  const totalStoreVisitUv = (!isNaN(claimToStoreRate) && claimToStoreRate > 0 && totalClaimUv > 0)
-    ? Math.round(totalClaimUv * claimToStoreRate) : null;
-  let storeRate = (totalStoreVisitUv !== null && totalStoreVisitUv > 0)
-    ? totalRedeemUv / totalStoreVisitUv : NaN;
-  // fallback
-  if (isNaN(storeRate)) {
-    for (const a of brandActivities) {
-      const sr = parseStoreRate(a.store_redeem_rate_uv);
-      if (!isNaN(sr) && sr > 0) { storeRate = sr; break; }
+    const sr = parseStoreRate(a.store_redeem_rate_uv);
+    const ru = a.redeem_uv || 0;
+    if (!isNaN(sr) && sr > 0 && ru > 0) {
+      weightedStoreSum += sr * ru;
+      weightedStoreDenom += ru;
     }
   }
+  let storeRate = weightedStoreDenom > 0 ? weightedStoreSum / weightedStoreDenom : NaN;
   if (isNaN(storeRate) && brandDaily) {
     storeRate = parseStoreRate(brandDaily.w7_store_redeem_rate_uv);
   }
@@ -392,6 +385,18 @@ function renderDiagResult() {
           <div style="flex:1;background:#F8FAFC;border:1px solid #E2E8F0;border-radius:8px;padding:10px 14px;text-align:center">
             <div style="font-size:11px;color:#94A3B8;margin-bottom:2px">活动数</div>
             <div style="font-size:20px;font-weight:700;color:#1E293B">${b.activities.length}</div>
+          </div>
+          <div style="flex:1;background:#FDF4FF;border:1px solid #F0ABFC;border-radius:8px;padding:10px 14px;text-align:center">
+            <div style="font-size:11px;color:#94A3B8;margin-bottom:2px">价格力</div>
+            <div style="font-size:20px;font-weight:700;color:#1E293B">${(() => {
+              let wSum = 0, wDen = 0;
+              for (const a of b.activities) {
+                const pp = a.price_power;
+                const ep = a.exposure_pv || 0;
+                if (pp && pp > 0 && ep > 0) { wSum += pp * ep; wDen += ep; }
+              }
+              return wDen > 0 ? (wSum / wDen / 100).toFixed(2) + '%' : '-';
+            })()}</div>
           </div>
           ${!isExt ? `<div style="flex:1;background:#EFF6FF;border:1px solid #DBEAFE;border-radius:8px;padding:10px 14px;text-align:center">
             <div style="font-size:11px;color:#94A3B8;margin-bottom:2px">曝光</div>
@@ -813,18 +818,23 @@ function renderDiagActivities() {
   const meds = diagCatMedians[cat] || {};
   const isExt = diagMode === 'external';
   const activities = [...b.activities].sort((a, c) => (c.exposure_pv || 0) - (a.exposure_pv || 0));
-  const storeRate = b.metrics.store_redeem;
 
   return activities.map(a => {
     const ecr = a.exposure_pv > 0 ? a.claim_pv / a.exposure_pv : 0;
     const crr = a.claim_pv > 0 ? a.redeem_pv / a.claim_pv : 0;
     const err = a.exposure_pv > 0 ? a.redeem_pv / a.exposure_pv : 0;
+    // 活动级到店核销率（真实值）
+    const actStoreRedeem = parseStoreRate(a.store_redeem_rate_uv);
+
+    // 价格力
+    const pp = a.price_power;
+    const ppStr = (pp != null && pp > 0) ? (pp / 100).toFixed(2) + '%' : '-';
 
     const allActMetrics = [
       { label: '曝光领取率', val: ecr, med: meds.exposure_claim || 0, ext: false },
       { label: '领取核销率', val: crr, med: meds.claim_redeem || 0, ext: true },
       { label: '曝光核销率', val: err, med: meds.exposure_redeem || 0, ext: false },
-      { label: '到店核销率', val: storeRate, med: meds.store_redeem || 0, ext: true },
+      { label: '到店核销率', val: isNaN(actStoreRedeem) ? 0 : actStoreRedeem, med: meds.store_redeem || 0, ext: true },
     ];
     const actMetrics = isExt ? allActMetrics.filter(m => m.ext) : allActMetrics;
     const weakActMetrics = actMetrics.filter(m => m.val < m.med);
@@ -854,7 +864,10 @@ function renderDiagActivities() {
     }
 
     return `<div class="diag-activity-card">
-      <div class="diag-act-card-name">${a.activity_name}</div>
+      <div class="diag-act-card-header">
+        <div class="diag-act-card-name">${a.activity_name}</div>
+        <div class="diag-act-card-pp" style="font-size:11px;color:#64748B">价格力 <b style="color:#1E293B">${ppStr}</b></div>
+      </div>
       <div class="diag-act-blocks">
         ${!isExt ? `<div class="diag-act-block diag-act-block-exposure">
           <div class="diag-act-block-label">曝光</div>
@@ -878,7 +891,6 @@ function renderDiagActivities() {
         </div>
       </div>
       ${actMetrics.map(m => rateRow(m.label, m.val, m.med)).join('')}
-      ${rateRow('到店核销率', storeRate, meds.store_redeem || 0)}
     </div>`;
   }).join('');
 }

@@ -117,12 +117,12 @@ async function loadBestPracticeData() {
       const rUv = act.redeem_uv || 0;
       if (ePv === 0 && eUv === 0) continue;
 
-      // V2.1: 用真实领取到店率计算到店人数
+      // V2.1: 各率直接用DB真实值，到店人数用倒推预估
+      const storeRate = parseRateValue(act.store_redeem_rate_uv);
       const claimToStoreRate = parseRateValue(act.claim_to_store_rate_uv);
-      const storeVisitUv = (!isNaN(claimToStoreRate) && claimToStoreRate > 0 && cUv > 0)
-        ? Math.round(cUv * claimToStoreRate) : null;
-      // 到店核销率：以核销UV为准修正（核销UV / 到店人数）
-      const storeRate = (storeVisitUv !== null && storeVisitUv > 0) ? rUv / storeVisitUv : parseRateValue(act.store_redeem_rate_uv);
+      // 到店人数 = 核销UV / 到店核销率（预估）
+      const storeVisitUv = (!isNaN(storeRate) && storeRate > 0 && rUv > 0)
+        ? Math.round(rUv / storeRate) : null;
 
       const item = {
         brand_id: act.brand_id,
@@ -138,7 +138,7 @@ async function loadBestPracticeData() {
         claim_redeem_rate: cUv > 0 ? rUv / cUv : 0,
         exposure_redeem_rate: eUv > 0 ? rUv / eUv : 0,
         store_redeem_rate: storeRate,
-        claim_to_store_rate: (storeVisitUv !== null && cUv > 0) ? storeVisitUv / cUv : NaN,
+        claim_to_store_rate: claimToStoreRate,
         brand_store_redeem_rate: storeRate,
         // V2 新字段
         batch_name: act.batch_name || '',

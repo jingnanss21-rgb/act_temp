@@ -2043,3 +2043,12 @@ body {
   color: #94A3B8;
   font-size: 15px;
 }
+
+/* 活动卡片 header（名称+价格力） */
+.diag-act-card-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
