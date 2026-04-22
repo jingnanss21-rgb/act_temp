@@ -307,6 +307,7 @@ function openLayer2(catKey) {
   function renderDrawerContent(metricIdx) {
     const mk = METRICS[metricIdx];
     const top3 = bestPracticeData[catKey]?.[mk.key] || [];
+    const isPV = (window.currentMetricType || 'uv') === 'pv';
 
     let html = `<div class="drawer-header">
       <div class="drawer-title">${emoji} ${catKey} · ${mk.label} Top3</div>
