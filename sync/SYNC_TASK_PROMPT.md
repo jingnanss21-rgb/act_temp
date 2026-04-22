@@ -41,19 +41,7 @@ load_dotenv()
 client = get_client()
 errors = []
 
-# === 旧表验收 ===
-res1 = client.table('tem_activities').select('report_date').order('report_date', desc=True).limit(1).execute()
-act_date = res1.data[0]['report_date'] if res1.data else None
-print(f'[旧-活动日报] 最新日期: {act_date}')
-if not act_date:
-    errors.append('旧活动数据为空')
-
-res2 = client.table('tem_activities').select('activity_id', count='exact').eq('report_date', act_date).execute()
-act_count = res2.count or 0
-print(f'[旧-活动日报] 最新日期行数: {act_count}')
-if act_count < 100:
-    errors.append(f'旧活动数据量异常: {act_count}行 (预期>100)')
-
+# === 品牌日报验收 ===
 res3 = client.table('tem_brand_daily').select('report_date').order('report_date', desc=True).limit(1).execute()
 bd_date = res3.data[0]['report_date'] if res3.data else None
 print(f'[品牌日报] 最新日期: {bd_date}')
@@ -72,13 +60,7 @@ print(f'[品牌日报] 有到店核销率的品牌数: {store_count}')
 if store_count < 50:
     errors.append(f'品牌日报到店核销率异常: 仅{store_count}个品牌有值 (预期>50)')
 
-res6 = client.table('tem_activities').select('activity_id', count='exact').eq('report_date', act_date).gt('exposure_pv', 0).execute()
-exp_count = res6.count or 0
-print(f'[旧-活动日报] 有曝光的活动数: {exp_count}')
-if exp_count < 50:
-    errors.append(f'旧有曝光活动数异常: {exp_count} (预期>50)')
-
-# === V2新表验收 ===
+# === V2新表验收（线上主表）===
 v2r1 = client.table('tem_activity_daily').select('report_date').order('report_date', desc=True).limit(1).execute()
 v2_date = v2r1.data[0]['report_date'] if v2r1.data else None
 print(f'[V2-活动快照] 最新日期: {v2_date}')
@@ -111,7 +93,6 @@ if errors:
     raise Exception('数据同步验收未通过')
 else:
     print('✅ 验收通过！所有检查项正常')
-    print(f'   旧表: 活动{act_date}/{act_count}条, {exp_count}条有曝光')
     print(f'   品牌日报: {bd_date}/{bd_count}条, {store_count}条有到店核销率')
     print(f'   V2表: {v2_date}/{v2_count}条, {v2_cts}条有领取到店率, {v2_exp}条有曝光')
 "
@@ -168,16 +149,13 @@ curl -s -o /dev/null -w "%{http_code}" https://act-temp.pages.dev
 
 | # | 检查项 | 通过条件 | 失败处理 |
 |---|--------|---------|---------|
-| 1 | 旧活动日报最新日期 | 和底表最新周期一致 | 检查导览表是否有新链接 |
-| 2 | 旧活动数据量 | 最新日期 > 100 条 | 检查导出xlsx是否正常 |
-| 3 | 品牌日报最新日期 | 和底表导览A2一致 | 检查品牌日报导览A2超链接 |
-| 4 | 品牌日报数据量 | 最新日期 > 100 条 | 检查导出列数是否101列 |
-| 5 | 品牌日报到店核销率 | > 50 个品牌有值 | 检查xlsx CS列是否读到 |
-| 6 | 旧活动有曝光数据 | > 50 条活动曝光PV > 0 | 确认底表数据已更新 |
-| 7 | V2活动快照最新日期 | 和导览表最新条目一致 | 检查导览表A1是否有新链接 |
-| 8 | V2活动数据量 | 最新日期 > 100 条 | 检查sync_v2.py字段映射 |
-| 9 | V2领取到店率 | > 50 条有值 | 检查底表"领取到店率_uv"字段 |
-| 10 | V2有曝光数据 | > 50 条曝光PV > 0 | 确认底表已更新 |
+| 1 | 品牌日报最新日期 | 和底表导览A2一致 | 检查品牌日报导览A2超链接 |
+| 2 | 品牌日报数据量 | 最新日期 > 100 条 | 检查导出列数是否101列 |
+| 3 | 品牌日报到店核销率 | > 50 个品牌有值 | 检查xlsx CS列是否读到 |
+| 4 | V2活动快照最新日期 | 和导览表最新条目一致 | 检查导览表A1是否有新链接 |
+| 5 | V2活动数据量 | 最新日期 > 100 条 | 检查sync_v2.py字段映射 |
+| 6 | V2领取到店率 | > 50 条有值 | 检查底表"领取到店率_uv"字段 |
+| 7 | V2有曝光数据 | > 50 条曝光PV > 0 | 确认底表已更新 |
 
 ---
 
@@ -249,7 +227,7 @@ pip3 install openpyxl supabase python-dotenv requests
 ┌────────────┬─────────────────────────────┬────────────────────┐
 │    阶段    │            检查             │      失败行为      │
 ├────────────┼─────────────────────────────┼────────────────────┤
-│ 数据同步后 │ 旧表6项 + V2表4项数据验收   │ 停止，不push，报告 │
+│ 数据同步后 │ 品牌日报3项 + V2表4项验收    │ 停止，不push，报告 │
 ├────────────┼─────────────────────────────┼────────────────────┤
 │ Push前     │ JS语法检查（4个文件）       │ 停止，不push，报告 │
 ├────────────┼─────────────────────────────┼────────────────────┤
