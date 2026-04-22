@@ -92,14 +92,22 @@ def sync_activities(client):
         file_id = entry["file_id"]
         print(f"\n  处理: {text} (file_id={file_id})")
 
-        # 从链接文本提取周期信息（如 "0409-0415"→取结束日期0415→2026-04-15）
+        # 从链接文本提取周期信息
+        # 旧格式: "0409-0415" → 取结束日期 0415 → 2026-04-15
+        # 新格式: "0420_餐饮活动日表" → 0420 → 2026-04-20
         report_label = text
         date_match = re.search(r'(\d{2})(\d{2})-(\d{2})(\d{2})', text)
         if date_match:
             end_month, end_day = date_match.group(3), date_match.group(4)
             report_date = f"2026-{end_month}-{end_day}"
         else:
-            report_date = datetime.now().strftime("%Y-%m-%d")
+            # 新格式：开头4位数字
+            single_match = re.match(r'^(\d{2})(\d{2})', text)
+            if single_match:
+                report_date = f"2026-{single_match.group(1)}-{single_match.group(2)}"
+            else:
+                report_date = datetime.now().strftime("%Y-%m-%d")
+                print(f"    ⚠ 无法从文本提取日期，fallback为今天: {report_date}")
 
         try:
             # 第二跳：导出目标 sheet
