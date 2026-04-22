@@ -194,6 +194,7 @@ async function loadActivityDetail() {
         pv_exposure_redeem: ePv > 0 ? rPv / ePv : 0,
         // 到店
         w7_store_redeem_rate_uv: storeRedeem,
+        store_below_threshold: act.store_below_threshold,
         // 对接
         contact_assistant: merchant.contact_assistant || '-',
         operating_sp: merchant.operating_sp || '-',
@@ -474,9 +475,10 @@ function renderDetailTable() {
       <td class="${rateClass(row.pv_claim_redeem)}">${fmtRateWithAnomaly(row.pv_claim_redeem, 'claim_redeem')}</td>
       <td class="${rateClass(row.pv_exposure_redeem)}">${fmtRateWithAnomaly(row.pv_exposure_redeem, 'exposure_redeem')}</td>
       <td class="${rateClass(row.w7_store_redeem_rate_uv)}">${fmtStoreRate(row.w7_store_redeem_rate_uv)}</td>
+      <td>${fmtStoreRate(row.store_below_threshold)}</td>
     </tr>`;
   }
-  tbody.innerHTML = html || '<tr><td colspan="27" style="text-align:center;padding:32px;color:var(--text-muted)">暂无数据</td></tr>';
+  tbody.innerHTML = html || '<tr><td colspan="28" style="text-align:center;padding:32px;color:var(--text-muted)">暂无数据</td></tr>';
 
   renderPagination(total, totalPages);
 }
@@ -521,7 +523,7 @@ function exportDetailCSV() {
     '活动ID', '活动名称', '批次名称', '价格力', '库存(剩余/总)',
     '曝光UV', '领取UV', '核销UV', 'UV曝光领取率', 'UV领取核销率', 'UV曝光核销率',
     '曝光PV', '领取PV', '核销PV', 'PV曝光领取率', 'PV领取核销率', 'PV曝光核销率',
-    '到店核销率',
+    '到店核销率', '未达门槛占比',
   ];
 
   const csvRows = [headers.join(',')];
@@ -538,6 +540,7 @@ function exportDetailCSV() {
       row.exposure_pv, row.claim_pv, row.redeem_pv,
       fmtRate(row.pv_exposure_claim), fmtRate(row.pv_claim_redeem), fmtRate(row.pv_exposure_redeem),
       fmtRate(row.w7_store_redeem_rate_uv),
+      fmtRate(row.store_below_threshold),
     ];
     csvRows.push(vals.join(','));
   }

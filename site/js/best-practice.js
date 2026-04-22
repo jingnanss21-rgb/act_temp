@@ -429,7 +429,8 @@ function openLayer3(catKey, activityId, brandId) {
   // 根据当前口径取值
   const t = window.currentMetricType || 'uv';
   const isPV = t === 'pv';
-  const unitLabel = isPV ? '次' : '人';
+  const unitWord = isPV ? '次数' : '人数';
+  const unitShort = isPV ? '次' : '人';
   const exposureVal = isPV ? item.exposure_pv : item.exposure_uv;
   const claimVal = isPV ? item.claim_pv : item.claim_uv;
   const redeemVal = isPV ? item.redeem_pv : item.redeem_uv;
@@ -478,7 +479,7 @@ function openLayer3(catKey, activityId, brandId) {
       <div class="modal-left">
         <div class="funnel-full">
           <div class="funnel-level" style="width:100%;background:${color}">
-            <span class="fl-text">曝光${unitLabel} = ${fmtNum(exposureVal)}${unitLabel}</span>
+            <span class="fl-text">曝光${unitWord} = ${fmtNum(exposureVal)}${unitShort}</span>
           </div>
           <div class="funnel-transition">
             <span class="ft-label">曝光领取率</span>
@@ -486,7 +487,7 @@ function openLayer3(catKey, activityId, brandId) {
             <span class="ft-loss">| 流失率 ${fmtPct(lossRate(expClm))}</span>
           </div>
           <div class="funnel-level" style="width:85%;background:${color}CC">
-            <span class="fl-text">领取${unitLabel} = ${fmtNum(claimVal)}${unitLabel}</span>
+            <span class="fl-text">领取${unitWord} = ${fmtNum(claimVal)}${unitShort}</span>
           </div>
           <div class="funnel-transition">
             <span class="ft-label">领取到店率</span>
@@ -502,7 +503,7 @@ function openLayer3(catKey, activityId, brandId) {
             <span class="ft-loss">| 流失率 ${fmtPct(lossRate(storeRdm))}</span>
           </div>
           <div class="funnel-level" style="width:45%;background:${color}88">
-            <span class="fl-text">核销${unitLabel} = ${fmtNum(redeemVal)}${unitLabel}</span>
+            <span class="fl-text">核销${unitWord} = ${fmtNum(redeemVal)}${unitShort}</span>
           </div>
         </div>
       </div>

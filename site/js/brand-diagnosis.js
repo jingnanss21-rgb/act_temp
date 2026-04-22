@@ -178,6 +178,10 @@ function computeCategoryStats() {
       // FIX: Bug #2 - 最佳值取真正的 max（而非 Top3 平均），确保 >= 所有品牌值
       diagCatBest[cat][mk.key] = sorted.length > 0 ? sorted[0][mk.key] : 0;
     }
+
+    // 价格力中位数（原值，如316=3.16%）
+    const ppVals = items.map(i => i.price_power).filter(v => v && v > 0).sort((a, b) => a - b);
+    diagCatMedians[cat].price_power = ppVals.length > 0 ? ppVals[Math.floor(ppVals.length / 2)] : 0;
   }
 }
 
@@ -451,7 +455,8 @@ function renderDiagResult() {
       <!-- 上：水平漏斗 -->
       ${(() => {
         const isPV = (window.currentMetricType || 'uv') === 'pv';
-        const unitLabel = isPV ? '次' : '人';
+        const unitWord = isPV ? '次数' : '人数';
+        const unitShort = isPV ? '次' : '人';
         const exposureVal = b.totals.exposure;
         const claimVal = b.totals.claim;
         const redeemVal = b.totals.redeem;
@@ -474,10 +479,10 @@ function renderDiagResult() {
         const fp = (v) => isNaN(v) ? '-' : (v * 100).toFixed(1) + '%';
 
         const allNodes = [
-          { label: '曝光' + unitLabel, value: fmtNum(exposureVal), unit: unitLabel, opacity: '', ext: false },
-          { label: '领取' + unitLabel, value: fmtNum(claimVal), unit: unitLabel, opacity: isExt ? '' : 'CC', ext: true },
+          { label: '曝光' + unitWord, value: fmtNum(exposureVal), unit: unitShort, opacity: '', ext: false },
+          { label: '领取' + unitWord, value: fmtNum(claimVal), unit: unitShort, opacity: isExt ? '' : 'CC', ext: true },
           { label: '到店人数', value: storeVisit !== null ? fmtNum(storeVisit) : '-', unit: '人*预估' + (isPV ? '(UV)' : ''), opacity: isExt ? 'CC' : 'AA', ext: true },
-          { label: '核销' + unitLabel, value: fmtNum(redeemVal), unit: unitLabel, opacity: isExt ? '88' : '88', ext: true },
+          { label: '核销' + unitWord, value: fmtNum(redeemVal), unit: unitShort, opacity: isExt ? '88' : '88', ext: true },
         ];
         const allArrows = [
           { rateLabel: '曝光领取率', rate: fp(expClm), loss: fp(lossRate(expClm)), ext: false },
@@ -876,11 +881,13 @@ function renderDiagActivities() {
     // 活动级到店核销率（真实值）
     const actStoreRedeem = parseStoreRate(a.store_redeem_rate_uv);
 
-    // 价格力
+    // 价格力（转为小数，与转化率同格式）
     const pp = a.price_power;
-    const ppStr = (pp != null && pp > 0) ? (pp / 100).toFixed(2) + '%' : '-';
+    const ppRate = (pp != null && pp > 0) ? pp / 10000 : 0; // 316 → 0.0316
+    const ppMed = (meds.price_power || 0) / 10000;
 
     const allActMetrics = [
+      { label: '价格力', val: ppRate, med: ppMed, ext: true },
       { label: '曝光领取率', val: ecr, med: meds.exposure_claim || 0, ext: false },
       { label: '领取核销率', val: crr, med: meds.claim_redeem || 0, ext: true },
       { label: '曝光核销率', val: err, med: meds.exposure_redeem || 0, ext: false },
@@ -914,10 +921,7 @@ function renderDiagActivities() {
     }
 
     return `<div class="diag-activity-card">
-      <div class="diag-act-card-header">
-        <div class="diag-act-card-name">${a.activity_name}</div>
-        <div class="diag-act-card-pp" style="font-size:11px;color:#64748B">价格力 <b style="color:#1E293B">${ppStr}</b></div>
-      </div>
+      <div class="diag-act-card-name">${a.activity_name}</div>
       <div class="diag-act-blocks">
         ${!isExt ? `<div class="diag-act-block diag-act-block-exposure">
           <div class="diag-act-block-label">曝光</div>
