@@ -29,7 +29,7 @@ from supabase_writer import get_client, upsert_batch
 
 
 # 导览表 file_id
-NAV_FILE_ID = "DWWtkT0Rrd2pCSnV1"
+NAV_FILE_ID = "DWWhYU3FrWXhuSHhu"
 
 # 底表字段 → DB 列名（兼容新旧两版字段名）
 FIELD_MAP = {
