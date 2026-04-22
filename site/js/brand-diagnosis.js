@@ -56,10 +56,26 @@ async function initDiagnosis() {
       return all;
     }
 
-    const [actData, mcRes] = await Promise.all([
+    const [actData, mcRes, brandCatRes] = await Promise.all([
       fetchAllFromView(getViewName(), '*'),
       supabaseClient.from('tem_merchant_contacts').select('brand_id,brand_name,operating_sp,contact_assistant'),
+      supabaseClient.from('tem_brand_daily')
+        .select('brand_id, category_l4')
+        .order('report_date', { ascending: false }).limit(5000),
     ]);
+
+    // 品牌→类目映射（品牌日报四级类目）
+    const brandCatMap = {};
+    for (const r of (brandCatRes.data || [])) {
+      if (r.brand_id && r.category_l4 && !brandCatMap[r.brand_id]) {
+        brandCatMap[r.brand_id] = r.category_l4;
+      }
+    }
+
+    // 统一写入类目
+    for (const a of actData) {
+      a._category = brandCatMap[a.brand_id] || a.category_name || '';
+    }
 
     diagActivities = actData.filter(a => a.exposure_uv > 0 && a.exposure_pv > 0);
 
@@ -102,8 +118,8 @@ async function initDiagnosis() {
 function computeCategoryStats() {
   const catActivities = {};
   for (const a of diagActivities) {
-    // V2: category 直接用活动自带的 category_name
-    const cat = a.category_name;
+    // 类目统一从品牌日报取
+    const cat = a._category;
     if (!cat || !DIAG_CATEGORIES.includes(cat)) continue;
 
     // V2: 到店核销率直接用活动级 store_redeem_rate_uv
@@ -283,8 +299,8 @@ function runDiagnosis() {
     return;
   }
 
-  // category 直接从活动取
-  const actCategory = brandActivities[0].category_name || '';
+  // category 统一从品牌日报取
+  const actCategory = brandActivities[0]._category || brandActivities[0].category_name || '';
 
   diagCurrentBrand = {
     brand_id: brandId,
@@ -373,7 +389,7 @@ function renderDiagResult() {
   // 类目价格力P85
   const catPPVals = (function() {
     const acts = diagActivities.filter(a => {
-      return a.category_name === cat && a.price_power && a.price_power > 0;
+      return a._category === cat && a.price_power && a.price_power > 0;
     });
     return acts.map(a => a.price_power).sort((a, b2) => a - b2);
   })();

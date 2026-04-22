@@ -77,11 +77,22 @@ async function loadBestPracticeData() {
 
   try {
     const viewName = getViewName();
-    const [actData, merchantResult] = await Promise.all([
+    const [actData, merchantResult, brandCatResult] = await Promise.all([
       fetchAllFromView(viewName, '*'),
       supabaseClient.from('tem_merchant_contacts')
         .select('brand_id').limit(5000),
+      supabaseClient.from('tem_brand_daily')
+        .select('brand_id, category_l4')
+        .order('report_date', { ascending: false }).limit(5000),
     ]);
+
+    // 品牌→类目映射（来自品牌日报四级类目）
+    const brandCatMap = {};
+    for (const r of (brandCatResult.data || [])) {
+      if (r.brand_id && r.category_l4 && !brandCatMap[r.brand_id]) {
+        brandCatMap[r.brand_id] = r.category_l4;
+      }
+    }
 
     trackedBrandIdsForDiag = new Set();
     for (const m of (merchantResult.data || [])) {
@@ -92,11 +103,13 @@ async function loadBestPracticeData() {
     latestByBrand = {};
     for (const act of actData) {
       if (!act.brand_id) continue;
+      // 类目统一从品牌日报四级类目取
+      act._category = brandCatMap[act.brand_id] || act.category_name || '';
       if (!latestByBrand[act.brand_id]) {
         latestByBrand[act.brand_id] = {
           brand_id: act.brand_id,
           brand_name: act.brand_name,
-          category_l4: act.category_name,
+          category_l4: act._category,
           w7_store_redeem_rate_uv: act.store_redeem_rate_uv,
           report_date: act.report_date || act.latest_date,
         };
@@ -106,7 +119,7 @@ async function loadBestPracticeData() {
 
     allActivitiesForBP = [];
     for (const act of actData) {
-      const cat = act.category_name || '';
+      const cat = act._category || brandCatMap[act.brand_id] || act.category_name || '';
       if (!isCategoryAllowed(cat)) continue;
 
       const ePv = act.exposure_pv || 0;
