@@ -72,9 +72,10 @@ async function loadActivityDetail() {
   wrap.insertBefore(loadingEl, wrap.firstChild);
 
   try {
+    const viewName = getViewName();
     // 并行加载所有数据
-    const [actResult, brandResult, merchantResult, spResult, kaResult] = await Promise.all([
-      fetchAll('tem_activities', '*', 'report_date.desc'),
+    const [actData, brandResult, merchantResult, spResult, kaResult] = await Promise.all([
+      fetchAllFromView(viewName, '*'),
       supabaseClient.from('tem_brand_daily')
         .select('brand_id, brand_name, category_l4, store_count, w7_avg_txn_count, w7_mini_program_ratio, w7_store_redeem_rate_uv, report_date')
         .order('report_date', { ascending: false }).limit(5000),
@@ -86,12 +87,10 @@ async function loadActivityDetail() {
         .select('brand_id, owner').limit(500),
     ]);
 
-    const allActivities = actResult;
-
-    // 活动去重：同一 activity_id 可能有多个 report_date，只保留最新一条
+    // 活动去重：同一 activity_id 只保留一条
     const seenActivityIds = new Set();
     const uniqueActivities = [];
-    for (const act of allActivities) {
+    for (const act of actData) {
       if (!seenActivityIds.has(act.activity_id)) {
         seenActivityIds.add(act.activity_id);
         uniqueActivities.push(act);
@@ -158,8 +157,13 @@ async function loadActivityDetail() {
         owner = spOwnerMap[merchant.operating_sp] || '';
       }
 
+      // V2: category 优先取活动自带的 category_name
+      const category = act.category_name || brand.category_l4 || '-';
+      // V2: store_redeem 优先活动级，fallback 品牌级
+      const storeRedeem = act.store_redeem_rate_uv != null ? act.store_redeem_rate_uv : (brand.w7_store_redeem_rate_uv || '-');
+
       detailData.push({
-        category_l4: brand.category_l4 || '-',
+        category_l4: category,
         brand_id: bid,
         brand_name: act.brand_name || brand.brand_name || '-',
         store_count: brand.store_count || '-',
@@ -167,19 +171,30 @@ async function loadActivityDetail() {
         w7_mini_program_ratio: brand.w7_mini_program_ratio || '-',
         activity_id: act.activity_id,
         activity_name: act.activity_name || '-',
+        // V2 新字段
+        batch_name: act.batch_name || '-',
+        price_power: act.price_power,
+        total_stock: act.total_stock || 0,
+        remain_stock: act.remain_stock || 0,
+        start_date: act.start_date || '-',
+        end_date: act.end_date || '-',
+        // UV
         exposure_uv: eUv,
         claim_uv: cUv,
         redeem_uv: rUv,
         uv_exposure_claim: eUv > 0 ? cUv / eUv : 0,
         uv_claim_redeem: cUv > 0 ? rUv / cUv : 0,
         uv_exposure_redeem: eUv > 0 ? rUv / eUv : 0,
+        // PV
         exposure_pv: ePv,
         claim_pv: cPv,
         redeem_pv: rPv,
         pv_exposure_claim: ePv > 0 ? cPv / ePv : 0,
         pv_claim_redeem: cPv > 0 ? rPv / cPv : 0,
         pv_exposure_redeem: ePv > 0 ? rPv / ePv : 0,
-        w7_store_redeem_rate_uv: brand.w7_store_redeem_rate_uv || '-',
+        // 到店
+        w7_store_redeem_rate_uv: storeRedeem,
+        // 对接
         contact_assistant: merchant.contact_assistant || '-',
         operating_sp: merchant.operating_sp || '-',
         owner: owner || '-',
@@ -396,6 +411,19 @@ function rateClass(r) {
   return 'rate-low';
 }
 
+function fmtStock(total, remain) {
+  if (total >= 100000000) return '无限';
+  if (!remain && remain !== 0) return fmtNum(total);
+  return fmtNum(remain) + '/' + fmtNum(total);
+}
+
+function fmtPricePower(val) {
+  if (val === null || val === undefined || val === '') return '-';
+  const n = parseFloat(val);
+  if (isNaN(n)) return '-';
+  return (n / 100).toFixed(2) + '%';
+}
+
 function renderDetailTable() {
   const tbody = document.getElementById('detail-table-body');
   const total = filteredData.length;
@@ -430,6 +458,9 @@ function renderDetailTable() {
       <td>${row.owner}</td>
       <td>${row.activity_id}</td>
       <td title="${row.activity_name}" style="max-width:180px;overflow:hidden;text-overflow:ellipsis">${row.activity_name}</td>
+      <td title="${row.batch_name}" style="max-width:120px;overflow:hidden;text-overflow:ellipsis">${row.batch_name || '-'}</td>
+      <td>${fmtPricePower(row.price_power)}</td>
+      <td>${fmtStock(row.total_stock, row.remain_stock)}</td>
       <td>${fmtNum(row.exposure_uv)}</td>
       <td>${fmtNum(row.claim_uv)}</td>
       <td>${fmtNum(row.redeem_uv)}</td>
@@ -445,7 +476,7 @@ function renderDetailTable() {
       <td class="${rateClass(row.w7_store_redeem_rate_uv)}">${fmtStoreRate(row.w7_store_redeem_rate_uv)}</td>
     </tr>`;
   }
-  tbody.innerHTML = html || '<tr><td colspan="24" style="text-align:center;padding:32px;color:var(--text-muted)">暂无数据</td></tr>';
+  tbody.innerHTML = html || '<tr><td colspan="27" style="text-align:center;padding:32px;color:var(--text-muted)">暂无数据</td></tr>';
 
   renderPagination(total, totalPages);
 }
@@ -487,7 +518,7 @@ function exportDetailCSV() {
   const headers = [
     '类目', '品牌ID', '品牌名称', '门店数', '日均交易笔数', '小程序占比',
     '对接助理', '服务商', '负责人',
-    '活动ID', '活动名称',
+    '活动ID', '活动名称', '批次名称', '价格力', '库存(剩余/总)',
     '曝光UV', '领取UV', '核销UV', 'UV曝光领取率', 'UV领取核销率', 'UV曝光核销率',
     '曝光PV', '领取PV', '核销PV', 'PV曝光领取率', 'PV领取核销率', 'PV曝光核销率',
     '到店核销率',
@@ -500,7 +531,8 @@ function exportDetailCSV() {
       row.category_l4, row.brand_id, `"${row.brand_name}"`, row.store_count, row.w7_avg_txn_count,
       fmtRate(row.w7_mini_program_ratio),
       `"${row.contact_assistant}"`, `"${row.operating_sp}"`, `"${row.owner}"`,
-      row.activity_id, `"${row.activity_name}"`,
+      row.activity_id, `"${row.activity_name}"`, `"${row.batch_name || ''}"`,
+      fmtPricePower(row.price_power), fmtStock(row.total_stock, row.remain_stock),
       row.exposure_uv, row.claim_uv, row.redeem_uv,
       fmtRate(row.uv_exposure_claim), fmtRate(row.uv_claim_redeem), fmtRate(row.uv_exposure_redeem),
       row.exposure_pv, row.claim_pv, row.redeem_pv,

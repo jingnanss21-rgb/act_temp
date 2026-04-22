@@ -76,38 +76,37 @@ async function loadBestPracticeData() {
   container.innerHTML = '<div class="loading"><div class="spinner"></div><p>加载数据中...</p></div>';
 
   try {
-    const [brandResult, actResult, merchantResult] = await Promise.all([
-      supabaseClient.from('tem_brand_daily')
-        .select('brand_id, brand_name, category_l4, report_date, w7_exposure_claim_rate, w7_claim_redeem_rate, w7_exposure_redeem_rate, w7_store_redeem_rate_uv, w7_avg_exposure_pv, w7_avg_claim_pv, w7_avg_redeem_pv, w7_avg_store_redeem, store_count')
-        .order('report_date', { ascending: false }).limit(5000),
-      supabaseClient.from('tem_activities')
-        .select('activity_id, brand_id, brand_name, activity_name, exposure_pv, claim_pv, redeem_pv, exposure_uv, claim_uv, redeem_uv')
-        .limit(10000),
+    const viewName = getViewName();
+    const [actData, merchantResult] = await Promise.all([
+      fetchAllFromView(viewName, '*'),
       supabaseClient.from('tem_merchant_contacts')
         .select('brand_id').limit(5000),
     ]);
-
-    if (brandResult.error) throw brandResult.error;
-    if (actResult.error) throw actResult.error;
 
     trackedBrandIdsForDiag = new Set();
     for (const m of (merchantResult.data || [])) {
       if (m.brand_id) trackedBrandIdsForDiag.add(String(m.brand_id));
     }
 
+    // 构建 latestByBrand（从活动数据聚合）
     latestByBrand = {};
-    for (const row of brandResult.data) {
-      if (!row.brand_id) continue;
-      if (!latestByBrand[row.brand_id]) latestByBrand[row.brand_id] = row;
+    for (const act of actData) {
+      if (!act.brand_id) continue;
+      if (!latestByBrand[act.brand_id]) {
+        latestByBrand[act.brand_id] = {
+          brand_id: act.brand_id,
+          brand_name: act.brand_name,
+          category_l4: act.category_name,
+          w7_store_redeem_rate_uv: act.store_redeem_rate_uv,
+          report_date: act.report_date || act.latest_date,
+        };
+      }
     }
     allBrandDaily = Object.values(latestByBrand);
 
-    const actData = actResult.data || [];
     allActivitiesForBP = [];
-
     for (const act of actData) {
-      const brand = latestByBrand[act.brand_id];
-      const cat = brand?.category_l4 || '';
+      const cat = act.category_name || '';
       if (!isCategoryAllowed(cat)) continue;
 
       const ePv = act.exposure_pv || 0;
@@ -118,13 +117,12 @@ async function loadBestPracticeData() {
       const rUv = act.redeem_uv || 0;
       if (ePv === 0 && eUv === 0) continue;
 
-      const storeRate = parseRateValue(brand?.w7_store_redeem_rate_uv);
-      // 到店人数 = 核销UV / 到店核销率（倒推）
+      const storeRate = parseRateValue(act.store_redeem_rate_uv);
       const storeVisitUv = (!isNaN(storeRate) && storeRate > 0) ? Math.round(rUv / storeRate) : null;
 
       const item = {
         brand_id: act.brand_id,
-        brand_name: act.brand_name || brand?.brand_name || '-',
+        brand_name: act.brand_name || '-',
         activity_name: act.activity_name || '',
         activity_id: act.activity_id,
         category_l4: cat,
@@ -137,9 +135,14 @@ async function loadBestPracticeData() {
         exposure_redeem_rate: eUv > 0 ? rUv / eUv : 0,
         store_redeem_rate: storeRate,
         claim_to_store_rate: (storeVisitUv !== null && cUv > 0) ? storeVisitUv / cUv : NaN,
-        // 品牌级信息
         brand_store_redeem_rate: storeRate,
-        brand_w7_avg_store_redeem: brand?.w7_avg_store_redeem,
+        // V2 新字段
+        batch_name: act.batch_name || '',
+        price_power: act.price_power,
+        total_stock: act.total_stock || 0,
+        remain_stock: act.remain_stock || 0,
+        start_date: act.start_date || '',
+        end_date: act.end_date || '',
       };
       item.is_anomaly = isAnomalyActivity(item);
       allActivitiesForBP.push(item);
@@ -165,10 +168,8 @@ async function loadBestPracticeData() {
           .sort((a, b) => b[mk.calcField] - a[mk.calcField]);
         bestPracticeData[catKey][mk.key] = sorted.slice(0, 3);
       }
-      // 领取到店率中位数（预估）
       const ctsVals = normalItems.map(i => i.claim_to_store_rate).filter(v => !isNaN(v) && v > 0);
       catMedians[catKey].claim_to_store = median(ctsVals);
-      // 领取核销率中位数
       const crVals = normalItems.map(i => i.claim_redeem_rate).filter(v => !isNaN(v) && v > 0);
       catMedians[catKey].claim_redeem = median(crVals);
     }
