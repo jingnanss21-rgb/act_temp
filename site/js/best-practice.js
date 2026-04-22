@@ -130,11 +130,12 @@ async function loadBestPracticeData() {
       const rUv = act.redeem_uv || 0;
       if (ePv === 0 && eUv === 0) continue;
 
-      // 到店相关始终UV口径
+      // 到店人数 = 核销UV / 到店核销率（预估）
       const storeRate = parseRateValue(act.store_redeem_rate_uv);
-      const claimToStoreRate = parseRateValue(act.claim_to_store_rate_uv);
-      const storeVisitUv = (!isNaN(claimToStoreRate) && claimToStoreRate > 0 && cUv > 0)
-        ? Math.round(cUv * claimToStoreRate) : null;
+      const storeVisitUv = (!isNaN(storeRate) && storeRate > 0 && rUv > 0)
+        ? Math.round(rUv / storeRate) : null;
+      // 领取到店率 = 预估到店人数 / 领取人数（预估）
+      const claimToStoreRate = (storeVisitUv !== null && cUv > 0) ? storeVisitUv / cUv : parseRateValue(act.claim_to_store_rate_uv);
 
       const item = {
         brand_id: act.brand_id,
@@ -363,14 +364,14 @@ function openLayer2(catKey) {
       }
 
       // 渐变漏斗（曝光→领取→到店→核销）
-      // PV模式：到店次数 = 领取次数 × UV领取到店率
+      // 到店 = 核销 / 到店核销率（预估）
+      const sr = item.store_redeem_rate;
       const storeValForFunnel = isPV
-        ? ((!isNaN(item.claim_to_store_rate) && item.claim_to_store_rate > 0 && item.claim_pv > 0)
-          ? Math.round(item.claim_pv * item.claim_to_store_rate) : null)
+        ? ((!isNaN(sr) && sr > 0 && item.redeem_pv > 0) ? Math.round(item.redeem_pv / sr) : null)
         : storeVisit;
       const storeTooltip = isPV
-        ? '到店次数 = 领取次数 × UV领取到店率（预估）'
-        : '到店人数 = 领取人数 × 领取到店率（预估）';
+        ? '到店次数 = 核销次数 / 到店核销率（预估）'
+        : '到店人数 = 核销人数 / 到店核销率（预估）';
       const funnelSteps = [
         { label: '曝光', value: isPV ? item.exposure_pv : item.exposure_uv, est: false },
         { label: '领取', value: isPV ? item.claim_pv : item.claim_uv, est: false },
@@ -519,7 +520,7 @@ function openLayer3(catKey, activityId, brandId) {
           <div class="funnel-level" style="width:65%;background:${color}AA">
             <span class="fl-text">到店${isPV ? '次数' : '人数'} *预估 = ${(() => {
               const sv = isPV
-                ? ((!isNaN(clmToStore) && clmToStore > 0 && claimVal > 0) ? Math.round(claimVal * clmToStore) : null)
+                ? ((!isNaN(storeRdm) && storeRdm > 0 && redeemVal > 0) ? Math.round(redeemVal / storeRdm) : null)
                 : storeVisitUv;
               return sv !== null ? fmtNum(sv) : '-';
             })()}${isPV ? '次' : '人'}</span>
@@ -548,7 +549,7 @@ function openLayer3(catKey, activityId, brandId) {
           </tbody>
         </table>
         <div class="cmp-note">数据更新时间：${latestByBrand[item.brand_id]?.report_date || '-'}</div>
-        <div class="cmp-note" style="margin-top:4px;font-size:10px;color:#94A3B8">口径说明：转化率为活动维度${isPV ? 'PV' : 'UV'}口径；到店${isPV ? '次数' : '人数'} = 领取${isPV ? '次数' : '人数'} × 领取到店率UV（预估）</div>
+        <div class="cmp-note" style="margin-top:4px;font-size:10px;color:#94A3B8">口径说明：转化率为活动维度${isPV ? 'PV' : 'UV'}口径；到店${isPV ? '次数' : '人数'} = 核销${isPV ? '次数' : '人数'} / 到店核销率（预估）；领取到店率由预估到店反推</div>
       </div>
     </div>
   </div>`;

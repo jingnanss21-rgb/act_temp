@@ -125,12 +125,14 @@ function computeCategoryStats() {
     // V2: 到店核销率直接用活动级 store_redeem_rate_uv
     const storeRateRaw = a.store_redeem_rate_uv;
 
-    // V2.1: 到店核销率直接用DB真实值，到店人数 = 领取UV × 领取到店率（预估）
+    // 到店人数 = 核销UV / 到店核销率（预估）
     const storeRedeem = parseStoreRate(storeRateRaw);
-    const claimToStoreRate = parseStoreRate(a.claim_to_store_rate_uv);
+    const rUv = a.redeem_uv || 0;
     const cUv = a.claim_uv || 0;
-    const storeVisitUv = (!isNaN(claimToStoreRate) && claimToStoreRate > 0 && cUv > 0)
-      ? Math.round(cUv * claimToStoreRate) : null;
+    const storeVisitUv = (!isNaN(storeRedeem) && storeRedeem > 0 && rUv > 0)
+      ? Math.round(rUv / storeRedeem) : null;
+    // 领取到店率 = 预估到店人数 / 领取人数
+    const claimToStoreRate = (storeVisitUv !== null && cUv > 0) ? storeVisitUv / cUv : parseStoreRate(a.claim_to_store_rate_uv);
 
     // 根据当前UV/PV口径取值
     const t = window.currentMetricType || 'uv';
@@ -477,27 +479,21 @@ function renderDiagResult() {
         const claimVal = b.totals.claim;
         const redeemVal = b.totals.redeem;
         const storeRdmRate = b.metrics.store_redeem;
-        // 到店人数 = 领取UV × 领取到店率（预估，始终UV口径）
-        let ctsWSum = 0, ctsWDen = 0;
-        for (const a of b.activities) {
-          const r = parseStoreRate(a.claim_to_store_rate_uv);
-          const cu = a.claim_uv || 0;
-          if (!isNaN(r) && r > 0 && cu > 0) { ctsWSum += r * cu; ctsWDen += cu; }
-        }
-        const brandClmToStore = ctsWDen > 0 ? ctsWSum / ctsWDen : NaN;
+        // 到店 = 核销 / 到店核销率（预估）
+        const totalRedeemUvFunnel = b.activities.reduce((s, a) => s + (a.redeem_uv || 0), 0);
+        const storeVisit = (storeRdmRate > 0 && totalRedeemUvFunnel > 0)
+          ? Math.round(totalRedeemUvFunnel / storeRdmRate) : null;
+        // 领取到店率 = 预估到店 / 领取
         const totalClaimUvFunnel = b.activities.reduce((s, a) => s + (a.claim_uv || 0), 0);
-        const storeVisit = (!isNaN(brandClmToStore) && brandClmToStore > 0 && totalClaimUvFunnel > 0)
-          ? Math.round(totalClaimUvFunnel * brandClmToStore) : null;
+        const clmToStore = (storeVisit !== null && totalClaimUvFunnel > 0) ? storeVisit / totalClaimUvFunnel : NaN;
         const expClm = claimVal / Math.max(exposureVal, 1);
-        const clmToStore = brandClmToStore;
         const storeRdm = storeRdmRate;
         const lossRate = (r) => isNaN(r) ? NaN : 1 - r;
         const fp = (v) => isNaN(v) ? '-' : (v * 100).toFixed(1) + '%';
 
-        // PV模式：到店次数 = 领取次数 × UV领取到店率
+        // PV模式：到店次数 = 核销次数 / 到店核销率
         const storeVisitDisplay = isPV
-          ? ((!isNaN(brandClmToStore) && brandClmToStore > 0 && claimVal > 0)
-            ? Math.round(claimVal * brandClmToStore) : null)
+          ? ((storeRdmRate > 0 && redeemVal > 0) ? Math.round(redeemVal / storeRdmRate) : null)
           : storeVisit;
         const storeUnitWord = isPV ? '次数' : '人数';
         const storeUnitShort = isPV ? '次' : '人';
@@ -586,7 +582,7 @@ function renderDiagResult() {
 
     <!-- 口径说明 -->
     <div style="padding:8px 0 16px;font-size:11px;color:#94A3B8;line-height:1.6">
-      口径说明：转化率为活动维度${(window.currentMetricType||'uv')==='pv'?'PV':'UV'}口径；到店${(window.currentMetricType||'uv')==='pv'?'次数':'人数'} = 领取${(window.currentMetricType||'uv')==='pv'?'次数':'人数'} × 领取到店率UV（预估）；价格力原值÷100为实际折扣率
+      口径说明：转化率为活动维度${(window.currentMetricType||'uv')==='pv'?'PV':'UV'}口径；到店${(window.currentMetricType||'uv')==='pv'?'次数':'人数'} = 核销${(window.currentMetricType||'uv')==='pv'?'次数':'人数'} / 到店核销率（预估）；领取到店率由预估到店反推；价格力原值÷100为实际折扣率
     </div>
   `;
 
