@@ -10,6 +10,19 @@ const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 // V2 全局时间周期
 // ============================================================
 window.currentPeriod = '7d'; // 'today' | '7d' | '30d'
+window.currentMetricType = 'uv'; // 'uv' | 'pv'
+
+// 根据当前口径取曝光/领取/核销值
+function getMetricVals(act) {
+  const t = window.currentMetricType || 'uv';
+  return {
+    exposure: t === 'uv' ? (act.exposure_uv || 0) : (act.exposure_pv || 0),
+    claim:    t === 'uv' ? (act.claim_uv || 0)    : (act.claim_pv || 0),
+    redeem:   t === 'uv' ? (act.redeem_uv || 0)   : (act.redeem_pv || 0),
+    label:    t === 'uv' ? '人数' : '次数',
+    tag:      t.toUpperCase(),
+  };
+}
 
 function getViewName() {
   const p = window.currentPeriod || '7d';

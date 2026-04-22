@@ -74,6 +74,10 @@
         <button class="period-btn active" data-period="7d" onclick="switchPeriod('7d')">近7日</button>
         <button class="period-btn" data-period="30d" onclick="switchPeriod('30d')">近30日</button>
       </div>
+      <div class="period-selector" style="margin-left:4px">
+        <button class="metric-btn active" data-metric="uv" onclick="switchMetricType('uv')">UV</button>
+        <button class="metric-btn" data-metric="pv" onclick="switchMetricType('pv')">PV</button>
+      </div>
       <span id="update-time">数据加载中...</span>
     </div>
   </div>
@@ -250,6 +254,24 @@
       if (activeTab === 'activity-alerts') { alertsInitialized = true; loadActivityAlerts(); }
       // Update date display
       updateDateDisplay();
+    }
+
+    function switchMetricType(type) {
+      window.currentMetricType = type;
+      document.querySelectorAll('.metric-btn').forEach(b => {
+        b.classList.toggle('active', b.dataset.metric === type);
+      });
+      // 纯前端重新渲染，不重新请求数据
+      // Tab0: 重算指标+重渲染
+      if (allActivitiesForBP.length > 0) {
+        recomputeBestPractice();
+        renderLayer1();
+      }
+      // Tab1: 如果已有诊断结果，重新计算渲染
+      if (diagCurrentBrand) {
+        computeCategoryStats();
+        runDiagnosis();
+      }
     }
 
     async function updateDateDisplay() {

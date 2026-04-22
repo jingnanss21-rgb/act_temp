@@ -116,12 +116,18 @@ function computeCategoryStats() {
     const storeVisitUv = (!isNaN(claimToStoreRate) && claimToStoreRate > 0 && cUv > 0)
       ? Math.round(cUv * claimToStoreRate) : null;
 
+    // 根据当前UV/PV口径取值
+    const t = window.currentMetricType || 'uv';
+    const eVal = t === 'uv' ? (a.exposure_uv || 0) : (a.exposure_pv || 0);
+    const cVal = t === 'uv' ? (a.claim_uv || 0) : (a.claim_pv || 0);
+    const rVal = t === 'uv' ? (a.redeem_uv || 0) : (a.redeem_pv || 0);
+
     const item = {
       ...a,
       category: cat,
-      exposure_claim: a.claim_pv / a.exposure_pv,
-      claim_redeem: a.redeem_pv / a.claim_pv,
-      exposure_redeem: a.redeem_pv / a.exposure_pv,
+      exposure_claim: eVal > 0 ? cVal / eVal : 0,
+      claim_redeem: cVal > 0 ? rVal / cVal : 0,
+      exposure_redeem: eVal > 0 ? rVal / eVal : 0,
       store_redeem: storeRedeem,
       claim_to_store_rate: claimToStoreRate,
       store_visit_uv: storeVisitUv,
@@ -286,9 +292,11 @@ function runDiagnosis() {
 
   diagSelectedMetric = diagMode === 'external' ? 'claim_redeem' : 'exposure_claim';
 
-  const totalExposurePv = brandActivities.reduce((s, a) => s + (a.exposure_pv || 0), 0);
-  const totalClaimPv = brandActivities.reduce((s, a) => s + (a.claim_pv || 0), 0);
-  const totalRedeemPv = brandActivities.reduce((s, a) => s + (a.redeem_pv || 0), 0);
+  const t = window.currentMetricType || 'uv';
+  const totalExposure = brandActivities.reduce((s, a) => s + (t === 'uv' ? (a.exposure_uv||0) : (a.exposure_pv||0)), 0);
+  const totalClaim = brandActivities.reduce((s, a) => s + (t === 'uv' ? (a.claim_uv||0) : (a.claim_pv||0)), 0);
+  const totalRedeem = brandActivities.reduce((s, a) => s + (t === 'uv' ? (a.redeem_uv||0) : (a.redeem_pv||0)), 0);
+  // UV 始终需要（到店相关）
   const totalClaimUv = brandActivities.reduce((s, a) => s + (a.claim_uv || 0), 0);
   const totalRedeemUv = brandActivities.reduce((s, a) => s + (a.redeem_uv || 0), 0);
 
@@ -306,16 +314,16 @@ function runDiagnosis() {
   let storeRate = weightedStoreDenom > 0 ? weightedStoreSum / weightedStoreDenom : NaN;
 
   diagCurrentBrand.metrics = {
-    exposure_claim: totalExposurePv > 0 ? totalClaimPv / totalExposurePv : 0,
-    claim_redeem: totalClaimPv > 0 ? totalRedeemPv / totalClaimPv : 0,
-    exposure_redeem: totalExposurePv > 0 ? totalRedeemPv / totalExposurePv : 0,
+    exposure_claim: totalExposure > 0 ? totalClaim / totalExposure : 0,
+    claim_redeem: totalClaim > 0 ? totalRedeem / totalClaim : 0,
+    exposure_redeem: totalExposure > 0 ? totalRedeem / totalExposure : 0,
     store_redeem: storeRate || 0,
   };
 
   diagCurrentBrand.totals = {
-    exposure_pv: totalExposurePv,
-    claim_pv: totalClaimPv,
-    redeem_pv: totalRedeemPv,
+    exposure: totalExposure,
+    claim: totalClaim,
+    redeem: totalRedeem,
   };
 
   // 短板检测——自动选中最弱指标
@@ -416,15 +424,15 @@ function renderDiagResult() {
           </div>
           ${!isExt ? `<div style="flex:1;background:#EFF6FF;border:1px solid #DBEAFE;border-radius:8px;padding:10px 14px;text-align:center">
             <div style="font-size:11px;color:#94A3B8;margin-bottom:2px">曝光</div>
-            <div style="font-size:20px;font-weight:700;color:#1E293B">${fmtNum(b.totals.exposure_pv)}</div>
+            <div style="font-size:20px;font-weight:700;color:#1E293B">${fmtNum(b.totals.exposure)}</div>
           </div>` : ''}
           <div style="flex:1;background:#F0FDF4;border:1px solid #DCFCE7;border-radius:8px;padding:10px 14px;text-align:center">
             <div style="font-size:11px;color:#94A3B8;margin-bottom:2px">领取</div>
-            <div style="font-size:20px;font-weight:700;color:#1E293B">${fmtNum(b.totals.claim_pv)}</div>
+            <div style="font-size:20px;font-weight:700;color:#1E293B">${fmtNum(b.totals.claim)}</div>
           </div>
           <div style="flex:1;background:#FFF7ED;border:1px solid #FED7AA;border-radius:8px;padding:10px 14px;text-align:center">
             <div style="font-size:11px;color:#94A3B8;margin-bottom:2px">核销</div>
-            <div style="font-size:20px;font-weight:700;color:#1E293B">${fmtNum(b.totals.redeem_pv)}</div>
+            <div style="font-size:20px;font-weight:700;color:#1E293B">${fmtNum(b.totals.redeem)}</div>
           </div>
         </div>
         ${weakMetrics.length > 0 ? `<div class="diag-alert" style="background:${scoreColor}10;border-left:3px solid ${scoreColor};color:${scoreColor}">
@@ -442,11 +450,13 @@ function renderDiagResult() {
 
       <!-- 上：水平漏斗 -->
       ${(() => {
-        const exposurePv = b.totals.exposure_pv;
-        const claimPv = b.totals.claim_pv;
-        const redeemPv = b.totals.redeem_pv;
+        const isPV = (window.currentMetricType || 'uv') === 'pv';
+        const unitLabel = isPV ? '次' : '人';
+        const exposureVal = b.totals.exposure;
+        const claimVal = b.totals.claim;
+        const redeemVal = b.totals.redeem;
         const storeRdmRate = b.metrics.store_redeem;
-        // 到店人数 = 领取人数 × 领取到店率（预估）
+        // 到店人数 = 领取UV × 领取到店率（预估，始终UV口径）
         let ctsWSum = 0, ctsWDen = 0;
         for (const a of b.activities) {
           const r = parseStoreRate(a.claim_to_store_rate_uv);
@@ -457,24 +467,17 @@ function renderDiagResult() {
         const totalClaimUvFunnel = b.activities.reduce((s, a) => s + (a.claim_uv || 0), 0);
         const storeVisit = (!isNaN(brandClmToStore) && brandClmToStore > 0 && totalClaimUvFunnel > 0)
           ? Math.round(totalClaimUvFunnel * brandClmToStore) : null;
-        const expClm = claimPv / Math.max(exposurePv, 1);
-        // 领取到店率：按领取UV加权平均各活动的真实值
-        let ctsWSum = 0, ctsWDen = 0;
-        for (const a of b.activities) {
-          const r = parseStoreRate(a.claim_to_store_rate_uv);
-          const cu = a.claim_uv || 0;
-          if (!isNaN(r) && r > 0 && cu > 0) { ctsWSum += r * cu; ctsWDen += cu; }
-        }
-        const clmToStore = ctsWDen > 0 ? ctsWSum / ctsWDen : NaN;
+        const expClm = claimVal / Math.max(exposureVal, 1);
+        const clmToStore = brandClmToStore;
         const storeRdm = storeRdmRate;
         const lossRate = (r) => isNaN(r) ? NaN : 1 - r;
         const fp = (v) => isNaN(v) ? '-' : (v * 100).toFixed(1) + '%';
 
         const allNodes = [
-          { label: '曝光人数', value: fmtNum(exposurePv), unit: '人', opacity: '', ext: false },
-          { label: '领取人数', value: fmtNum(claimPv), unit: '人', opacity: isExt ? '' : 'CC', ext: true },
-          { label: '到店人数', value: storeVisit !== null ? fmtNum(storeVisit) : '-', unit: '人*预估', opacity: isExt ? 'CC' : 'AA', ext: true },
-          { label: '核销人数', value: fmtNum(redeemPv), unit: '人', opacity: isExt ? '88' : '88', ext: true },
+          { label: '曝光' + unitLabel, value: fmtNum(exposureVal), unit: unitLabel, opacity: '', ext: false },
+          { label: '领取' + unitLabel, value: fmtNum(claimVal), unit: unitLabel, opacity: isExt ? '' : 'CC', ext: true },
+          { label: '到店人数', value: storeVisit !== null ? fmtNum(storeVisit) : '-', unit: '人*预估' + (isPV ? '(UV)' : ''), opacity: isExt ? 'CC' : 'AA', ext: true },
+          { label: '核销' + unitLabel, value: fmtNum(redeemVal), unit: unitLabel, opacity: isExt ? '88' : '88', ext: true },
         ];
         const allArrows = [
           { rateLabel: '曝光领取率', rate: fp(expClm), loss: fp(lossRate(expClm)), ext: false },
@@ -856,12 +859,20 @@ function renderDiagActivities() {
   const cat = b.category;
   const meds = diagCatMedians[cat] || {};
   const isExt = diagMode === 'external';
-  const activities = [...b.activities].sort((a, c) => (c.exposure_pv || 0) - (a.exposure_pv || 0));
+  const t = window.currentMetricType || 'uv';
+  const activities = [...b.activities].sort((a, c) => {
+    const aE = t === 'uv' ? (c.exposure_uv||0) : (c.exposure_pv||0);
+    const bE = t === 'uv' ? (a.exposure_uv||0) : (a.exposure_pv||0);
+    return aE - bE;
+  });
 
   return activities.map(a => {
-    const ecr = a.exposure_pv > 0 ? a.claim_pv / a.exposure_pv : 0;
-    const crr = a.claim_pv > 0 ? a.redeem_pv / a.claim_pv : 0;
-    const err = a.exposure_pv > 0 ? a.redeem_pv / a.exposure_pv : 0;
+    const eVal = t === 'uv' ? (a.exposure_uv||0) : (a.exposure_pv||0);
+    const cVal = t === 'uv' ? (a.claim_uv||0) : (a.claim_pv||0);
+    const rVal = t === 'uv' ? (a.redeem_uv||0) : (a.redeem_pv||0);
+    const ecr = eVal > 0 ? cVal / eVal : 0;
+    const crr = cVal > 0 ? rVal / cVal : 0;
+    const err = eVal > 0 ? rVal / eVal : 0;
     // 活动级到店核销率（真实值）
     const actStoreRedeem = parseStoreRate(a.store_redeem_rate_uv);
 
@@ -910,7 +921,7 @@ function renderDiagActivities() {
       <div class="diag-act-blocks">
         ${!isExt ? `<div class="diag-act-block diag-act-block-exposure">
           <div class="diag-act-block-label">曝光</div>
-          <div class="diag-act-block-val">${fmtNum(a.exposure_pv)}</div>
+          <div class="diag-act-block-val">${fmtNum(eVal)}</div>
         </div>
         <div class="diag-act-conv-arrow">
           <span class="diag-act-conv-rate">${fmtPctDiag(ecr)}</span>
@@ -918,7 +929,7 @@ function renderDiagActivities() {
         </div>` : ''}
         <div class="diag-act-block diag-act-block-claim">
           <div class="diag-act-block-label">领取</div>
-          <div class="diag-act-block-val">${fmtNum(a.claim_pv)}</div>
+          <div class="diag-act-block-val">${fmtNum(cVal)}</div>
         </div>
         <div class="diag-act-conv-arrow">
           <span class="diag-act-conv-rate">${fmtPctDiag(crr)}</span>
@@ -926,7 +937,7 @@ function renderDiagActivities() {
         </div>
         <div class="diag-act-block diag-act-block-redeem">
           <div class="diag-act-block-label">核销</div>
-          <div class="diag-act-block-val">${fmtNum(a.redeem_pv)}</div>
+          <div class="diag-act-block-val">${fmtNum(rVal)}</div>
         </div>
       </div>
       ${actMetrics.map(m => rateRow(m.label, m.val, m.med)).join('')}

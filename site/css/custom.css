@@ -1911,6 +1911,27 @@ body {
   box-shadow: 0 1px 3px rgba(37,99,235,0.3);
 }
 
+.metric-btn {
+  padding: 5px 14px;
+  border: none;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #64748B;
+  background: transparent;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.metric-btn:hover {
+  color: #1E293B;
+  background: #E2E8F0;
+}
+.metric-btn.active {
+  color: #fff;
+  background: #7C3AED;
+  box-shadow: 0 1px 3px rgba(124,58,237,0.3);
+}
+
 /* ============================================================
    V2: 活动预警 Tab
    ============================================================ */

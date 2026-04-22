@@ -117,7 +117,7 @@ async function loadBestPracticeData() {
       const rUv = act.redeem_uv || 0;
       if (ePv === 0 && eUv === 0) continue;
 
-      // V2.1: 各率直接用DB真实值，到店人数 = 领取UV × 领取到店率（预估）
+      // 到店相关始终UV口径
       const storeRate = parseRateValue(act.store_redeem_rate_uv);
       const claimToStoreRate = parseRateValue(act.claim_to_store_rate_uv);
       const storeVisitUv = (!isNaN(claimToStoreRate) && claimToStoreRate > 0 && cUv > 0)
@@ -130,15 +130,17 @@ async function loadBestPracticeData() {
         activity_id: act.activity_id,
         category_l4: cat,
         category_key: getCategoryKey(cat),
+        // 原始数据双口径
         exposure_pv: ePv, claim_pv: cPv, redeem_pv: rPv,
         exposure_uv: eUv, claim_uv: cUv, redeem_uv: rUv,
+        // 到店始终UV
         store_visit_uv: storeVisitUv,
-        exposure_claim_rate: eUv > 0 ? cUv / eUv : 0,
-        claim_redeem_rate: cUv > 0 ? rUv / cUv : 0,
-        exposure_redeem_rate: eUv > 0 ? rUv / eUv : 0,
         store_redeem_rate: storeRate,
         claim_to_store_rate: claimToStoreRate,
         brand_store_redeem_rate: storeRate,
+        // 动态率（由 recomputeBestPractice 填充）
+        exposure_claim_rate: 0, claim_redeem_rate: 0, exposure_redeem_rate: 0,
+        is_anomaly: false,
         // V2 新字段
         batch_name: act.batch_name || '',
         price_power: act.price_power,
@@ -147,36 +149,10 @@ async function loadBestPracticeData() {
         start_date: act.start_date || '',
         end_date: act.end_date || '',
       };
-      item.is_anomaly = isAnomalyActivity(item);
       allActivitiesForBP.push(item);
     }
 
-    // 按类目计算 Top3 和中位数
-    bestPracticeData = {};
-    catMedians = {};
-
-    for (const catKey of CATEGORY_ORDER) {
-      const catItems = allActivitiesForBP.filter(i => i.category_key === catKey);
-      const normalItems = catItems.filter(i => !i.is_anomaly);
-
-      bestPracticeData[catKey] = {};
-      catMedians[catKey] = {};
-
-      for (const mk of METRICS) {
-        const vals = normalItems.map(i => i[mk.calcField]).filter(v => !isNaN(v) && v > 0);
-        catMedians[catKey][mk.key] = median(vals);
-
-        const sorted = [...normalItems]
-          .filter(i => !isNaN(i[mk.calcField]) && i[mk.calcField] > 0)
-          .sort((a, b) => b[mk.calcField] - a[mk.calcField]);
-        bestPracticeData[catKey][mk.key] = sorted.slice(0, 3);
-      }
-      const ctsVals = normalItems.map(i => i.claim_to_store_rate).filter(v => !isNaN(v) && v > 0);
-      catMedians[catKey].claim_to_store = median(ctsVals);
-      const crVals = normalItems.map(i => i.claim_redeem_rate).filter(v => !isNaN(v) && v > 0);
-      catMedians[catKey].claim_redeem = median(crVals);
-    }
-
+    recomputeBestPractice();
     renderLayer1();
     initBrandDiagnostics();
   } catch (err) {
@@ -261,6 +237,48 @@ function renderLayer1() {
 function switchBPMetric(idx) {
   currentMetricIdx = idx;
   renderLayer1();
+}
+
+// ============================================================
+// 根据当前UV/PV口径重算转化率、Top3、中位数
+// ============================================================
+function recomputeBestPractice() {
+  const t = window.currentMetricType || 'uv';
+  for (const item of allActivitiesForBP) {
+    const e = t === 'uv' ? item.exposure_uv : item.exposure_pv;
+    const c = t === 'uv' ? item.claim_uv : item.claim_pv;
+    const r = t === 'uv' ? item.redeem_uv : item.redeem_pv;
+    item.exposure_claim_rate = e > 0 ? c / e : 0;
+    item.claim_redeem_rate = c > 0 ? r / c : 0;
+    item.exposure_redeem_rate = e > 0 ? r / e : 0;
+    // 到店始终UV口径不变
+    item.is_anomaly = isAnomalyActivity(item);
+  }
+
+  bestPracticeData = {};
+  catMedians = {};
+
+  for (const catKey of CATEGORY_ORDER) {
+    const catItems = allActivitiesForBP.filter(i => i.category_key === catKey);
+    const normalItems = catItems.filter(i => !i.is_anomaly);
+
+    bestPracticeData[catKey] = {};
+    catMedians[catKey] = {};
+
+    for (const mk of METRICS) {
+      const vals = normalItems.map(i => i[mk.calcField]).filter(v => !isNaN(v) && v > 0);
+      catMedians[catKey][mk.key] = median(vals);
+
+      const sorted = [...normalItems]
+        .filter(i => !isNaN(i[mk.calcField]) && i[mk.calcField] > 0)
+        .sort((a, b) => b[mk.calcField] - a[mk.calcField]);
+      bestPracticeData[catKey][mk.key] = sorted.slice(0, 3);
+    }
+    const ctsVals = normalItems.map(i => i.claim_to_store_rate).filter(v => !isNaN(v) && v > 0);
+    catMedians[catKey].claim_to_store = median(ctsVals);
+    const crVals = normalItems.map(i => i.claim_redeem_rate).filter(v => !isNaN(v) && v > 0);
+    catMedians[catKey].claim_redeem = median(crVals);
+  }
 }
 
 // ============================================================
@@ -408,13 +426,17 @@ function openLayer3(catKey, activityId, brandId) {
   const color = CATEGORY_COLOR[catKey] || '#2563EB';
   const meds = catMedians[catKey] || {};
 
-  // 4级漏斗数据
-  const exposureUv = item.exposure_uv;
-  const claimUv = item.claim_uv;
+  // 根据当前口径取值
+  const t = window.currentMetricType || 'uv';
+  const isPV = t === 'pv';
+  const unitLabel = isPV ? '次' : '人';
+  const exposureVal = isPV ? item.exposure_pv : item.exposure_uv;
+  const claimVal = isPV ? item.claim_pv : item.claim_uv;
+  const redeemVal = isPV ? item.redeem_pv : item.redeem_uv;
+  // 到店始终UV
   const storeVisitUv = item.store_visit_uv;
-  const redeemUv = item.redeem_uv;
 
-  // 转化率
+  // 转化率（按当前口径重算）
   const expClm = item.exposure_claim_rate;
   const clmRdm = item.claim_redeem_rate;
   const storeRdm = item.store_redeem_rate;
@@ -456,7 +478,7 @@ function openLayer3(catKey, activityId, brandId) {
       <div class="modal-left">
         <div class="funnel-full">
           <div class="funnel-level" style="width:100%;background:${color}">
-            <span class="fl-text">曝光人数 = ${fmtNum(exposureUv)}人</span>
+            <span class="fl-text">曝光${unitLabel} = ${fmtNum(exposureVal)}${unitLabel}</span>
           </div>
           <div class="funnel-transition">
             <span class="ft-label">曝光领取率</span>
@@ -464,7 +486,7 @@ function openLayer3(catKey, activityId, brandId) {
             <span class="ft-loss">| 流失率 ${fmtPct(lossRate(expClm))}</span>
           </div>
           <div class="funnel-level" style="width:85%;background:${color}CC">
-            <span class="fl-text">领取人数 = ${fmtNum(claimUv)}人</span>
+            <span class="fl-text">领取${unitLabel} = ${fmtNum(claimVal)}${unitLabel}</span>
           </div>
           <div class="funnel-transition">
             <span class="ft-label">领取到店率</span>
@@ -472,7 +494,7 @@ function openLayer3(catKey, activityId, brandId) {
             <span class="ft-loss">| 流失率 ${fmtPct(lossRate(clmToStore))}</span>
           </div>
           <div class="funnel-level" style="width:65%;background:${color}AA">
-            <span class="fl-text">到店人数 *预估 = ${storeVisitUv !== null ? fmtNum(storeVisitUv) : '-'}人</span>
+            <span class="fl-text">到店人数 *预估 = ${storeVisitUv !== null ? fmtNum(storeVisitUv) : '-'}人${isPV ? ' <span style="font-size:10px;opacity:0.7">(UV口径)</span>' : ''}</span>
           </div>
           <div class="funnel-transition">
             <span class="ft-label">到店核销率</span>
@@ -480,7 +502,7 @@ function openLayer3(catKey, activityId, brandId) {
             <span class="ft-loss">| 流失率 ${fmtPct(lossRate(storeRdm))}</span>
           </div>
           <div class="funnel-level" style="width:45%;background:${color}88">
-            <span class="fl-text">核销人数 = ${fmtNum(redeemUv)}人</span>
+            <span class="fl-text">核销${unitLabel} = ${fmtNum(redeemVal)}${unitLabel}</span>
           </div>
         </div>
       </div>
