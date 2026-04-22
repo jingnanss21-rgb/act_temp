@@ -77,7 +77,7 @@ async function loadActivityDetail() {
     const [actData, brandResult, merchantResult, spResult, kaResult] = await Promise.all([
       fetchAllFromView(viewName, '*'),
       supabaseClient.from('tem_brand_daily')
-        .select('brand_id, brand_name, category_l4, store_count, w7_avg_txn_count, w7_mini_program_ratio, w7_store_redeem_rate_uv, report_date')
+        .select('brand_id, store_count, w7_avg_txn_count, w7_mini_program_ratio, report_date')
         .order('report_date', { ascending: false }).limit(5000),
       supabaseClient.from('tem_merchant_contacts')
         .select('brand_id, brand_name, operating_sp, contact_assistant, brand_status').limit(5000),
@@ -157,10 +157,10 @@ async function loadActivityDetail() {
         owner = spOwnerMap[merchant.operating_sp] || '';
       }
 
-      // V2: category 优先取活动自带的 category_name
-      const category = act.category_name || brand.category_l4 || '-';
-      // V2: store_redeem 优先活动级，fallback 品牌级
-      const storeRedeem = act.store_redeem_rate_uv != null ? act.store_redeem_rate_uv : (brand.w7_store_redeem_rate_uv || '-');
+      // category 直接用活动表
+      const category = act.category_name || '-';
+      // 到店核销率直接用活动表
+      const storeRedeem = act.store_redeem_rate_uv != null ? act.store_redeem_rate_uv : '-';
 
       detailData.push({
         category_l4: category,

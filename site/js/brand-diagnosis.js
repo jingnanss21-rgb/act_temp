@@ -56,17 +56,12 @@ async function initDiagnosis() {
       return all;
     }
 
-    const [actData, bdRes, mcRes] = await Promise.all([
+    const [actData, mcRes] = await Promise.all([
       fetchAllFromView(getViewName(), '*'),
-      supabaseClient.from('tem_brand_daily').select('*').order('report_date', { ascending: false }),
       supabaseClient.from('tem_merchant_contacts').select('brand_id,brand_name,operating_sp,contact_assistant'),
     ]);
 
     diagActivities = actData.filter(a => a.exposure_uv > 0 && a.exposure_pv > 0);
-
-    for (const bd of (bdRes.data || [])) {
-      if (!diagBrandDaily[bd.brand_id]) diagBrandDaily[bd.brand_id] = bd;
-    }
 
     for (const mc of (mcRes.data || [])) {
       diagMerchants[mc.brand_id] = mc;
@@ -107,13 +102,12 @@ async function initDiagnosis() {
 function computeCategoryStats() {
   const catActivities = {};
   for (const a of diagActivities) {
-    // V2: 优先用活动自带的 category_name，fallback 到 brand_daily 的 category_l4
-    const cat = a.category_name || (diagBrandDaily[a.brand_id] || {}).category_l4;
+    // V2: category 直接用活动自带的 category_name
+    const cat = a.category_name;
     if (!cat || !DIAG_CATEGORIES.includes(cat)) continue;
 
-    // V2: 优先用活动级 store_redeem_rate_uv，fallback 到品牌级
-    const bd = diagBrandDaily[a.brand_id];
-    const storeRateRaw = a.store_redeem_rate_uv != null ? a.store_redeem_rate_uv : (bd ? bd.w7_store_redeem_rate_uv : null);
+    // V2: 到店核销率直接用活动级 store_redeem_rate_uv
+    const storeRateRaw = a.store_redeem_rate_uv;
 
     // V2.1: 到店核销率直接用DB真实值，到店人数 = 领取UV × 领取到店率（预估）
     const storeRedeem = parseStoreRate(storeRateRaw);
@@ -273,24 +267,21 @@ function runDiagnosis() {
     }
   }
 
-  const brandDaily = diagBrandDaily[brandId];
-
   if (brandActivities.length === 0) {
     document.getElementById('diag-result').innerHTML =
       '<div style="padding:24px;color:#DC2626;font-size:16px">未找到该品牌的活动数据</div>';
     return;
   }
 
-  // V2: category 优先从活动取，fallback 品牌日报
+  // category 直接从活动取
   const actCategory = brandActivities[0].category_name || '';
-  const bdCategory = brandDaily ? (brandDaily.category_l4 || '') : '';
 
   diagCurrentBrand = {
     brand_id: brandId,
     brand_name: brandActivities[0].brand_name,
-    brand_daily: brandDaily || { report_date: brandActivities[0].report_date || brandActivities[0].latest_date || '-' },
+    brand_daily: { report_date: brandActivities[0].report_date || brandActivities[0].latest_date || '-' },
     activities: brandActivities,
-    category: actCategory || bdCategory || '未知',
+    category: actCategory || '未知',
   };
 
   diagSelectedMetric = diagMode === 'external' ? 'claim_redeem' : 'exposure_claim';
@@ -313,9 +304,6 @@ function runDiagnosis() {
     }
   }
   let storeRate = weightedStoreDenom > 0 ? weightedStoreSum / weightedStoreDenom : NaN;
-  if (isNaN(storeRate) && brandDaily) {
-    storeRate = parseStoreRate(brandDaily.w7_store_redeem_rate_uv);
-  }
 
   diagCurrentBrand.metrics = {
     exposure_claim: totalExposurePv > 0 ? totalClaimPv / totalExposurePv : 0,
@@ -373,8 +361,7 @@ function renderDiagResult() {
   // 类目价格力P85
   const catPPVals = (function() {
     const acts = diagActivities.filter(a => {
-      const c = a.category_name || (diagBrandDaily[a.brand_id] || {}).category_l4;
-      return c === cat && a.price_power && a.price_power > 0;
+      return a.category_name === cat && a.price_power && a.price_power > 0;
     });
     return acts.map(a => a.price_power).sort((a, b2) => a - b2);
   })();
