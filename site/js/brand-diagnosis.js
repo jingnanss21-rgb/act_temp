@@ -461,7 +461,14 @@ function renderDiagResult() {
         const storeRdmRate = b.metrics.store_redeem;
         const storeVisit = (storeRdmRate > 0) ? Math.round(redeemPv / storeRdmRate) : null;
         const expClm = claimPv / Math.max(exposurePv, 1);
-        const clmToStore = (storeVisit && claimPv > 0) ? storeVisit / claimPv : NaN;
+        // 领取到店率：按领取UV加权平均各活动的真实值
+        let ctsWSum = 0, ctsWDen = 0;
+        for (const a of b.activities) {
+          const r = parseStoreRate(a.claim_to_store_rate_uv);
+          const cu = a.claim_uv || 0;
+          if (!isNaN(r) && r > 0 && cu > 0) { ctsWSum += r * cu; ctsWDen += cu; }
+        }
+        const clmToStore = ctsWDen > 0 ? ctsWSum / ctsWDen : NaN;
         const storeRdm = storeRdmRate;
         const lossRate = (r) => isNaN(r) ? NaN : 1 - r;
         const fp = (v) => isNaN(v) ? '-' : (v * 100).toFixed(1) + '%';

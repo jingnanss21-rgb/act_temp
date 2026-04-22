@@ -420,8 +420,8 @@ function openLayer3(catKey, activityId, brandId) {
   const clmRdm = item.claim_redeem_rate;
   const storeRdm = item.store_redeem_rate;
   const expRdm = item.exposure_redeem_rate;
-  // 领取到店率 = 到店人数 / 领取人数（预估）
-  const clmToStore = (storeVisitUv !== null && claimUv > 0) ? storeVisitUv / claimUv : NaN;
+  // 领取到店率：直接用DB真实值
+  const clmToStore = item.claim_to_store_rate;
 
   // 流失率
   function lossRate(conv) { return isNaN(conv) ? NaN : 1 - conv; }
