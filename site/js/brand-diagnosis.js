@@ -478,10 +478,18 @@ function renderDiagResult() {
         const lossRate = (r) => isNaN(r) ? NaN : 1 - r;
         const fp = (v) => isNaN(v) ? '-' : (v * 100).toFixed(1) + '%';
 
+        // PV模式：到店次数 = 领取次数 × UV领取到店率
+        const storeVisitDisplay = isPV
+          ? ((!isNaN(brandClmToStore) && brandClmToStore > 0 && claimVal > 0)
+            ? Math.round(claimVal * brandClmToStore) : null)
+          : storeVisit;
+        const storeUnitWord = isPV ? '次数' : '人数';
+        const storeUnitShort = isPV ? '次' : '人';
+
         const allNodes = [
           { label: '曝光' + unitWord, value: fmtNum(exposureVal), unit: unitShort, opacity: '', ext: false },
           { label: '领取' + unitWord, value: fmtNum(claimVal), unit: unitShort, opacity: isExt ? '' : 'CC', ext: true },
-          { label: '到店人数', value: storeVisit !== null ? fmtNum(storeVisit) : '-', unit: '人*预估' + (isPV ? '(UV)' : ''), opacity: isExt ? 'CC' : 'AA', ext: true },
+          { label: '到店' + storeUnitWord, value: storeVisitDisplay !== null ? fmtNum(storeVisitDisplay) : '-', unit: storeUnitShort + '*预估', opacity: isExt ? 'CC' : 'AA', ext: true },
           { label: '核销' + unitWord, value: fmtNum(redeemVal), unit: unitShort, opacity: isExt ? '88' : '88', ext: true },
         ];
         const allArrows = [
@@ -562,7 +570,7 @@ function renderDiagResult() {
 
     <!-- 口径说明 -->
     <div style="padding:8px 0 16px;font-size:11px;color:#94A3B8;line-height:1.6">
-      口径说明：转化率均为活动维度UV口径；到店人数 = 领取人数 × 领取到店率（预估）；价格力原值÷100为实际折扣率
+      口径说明：转化率为活动维度${(window.currentMetricType||'uv')==='pv'?'PV':'UV'}口径；到店${(window.currentMetricType||'uv')==='pv'?'次数':'人数'} = 领取${(window.currentMetricType||'uv')==='pv'?'次数':'人数'} × 领取到店率UV（预估）；价格力原值÷100为实际折扣率
     </div>
   `;
 

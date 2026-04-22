@@ -349,11 +349,19 @@ function openLayer2(catKey) {
       }
 
       // 渐变漏斗（曝光→领取→到店→核销）
+      // PV模式：到店次数 = 领取次数 × UV领取到店率
+      const storeValForFunnel = isPV
+        ? ((!isNaN(item.claim_to_store_rate) && item.claim_to_store_rate > 0 && item.claim_pv > 0)
+          ? Math.round(item.claim_pv * item.claim_to_store_rate) : null)
+        : storeVisit;
+      const storeTooltip = isPV
+        ? '到店次数 = 领取次数 × UV领取到店率（预估）'
+        : '到店人数 = 领取人数 × 领取到店率（预估）';
       const funnelSteps = [
-        { label: '曝光', value: item.exposure_uv, est: false },
-        { label: '领取', value: item.claim_uv, est: false },
-        { label: '到店', value: storeVisit, est: true },
-        { label: '核销', value: item.redeem_uv, est: false },
+        { label: '曝光', value: isPV ? item.exposure_pv : item.exposure_uv, est: false },
+        { label: '领取', value: isPV ? item.claim_pv : item.claim_uv, est: false },
+        { label: '到店', value: storeValForFunnel, est: true },
+        { label: '核销', value: isPV ? item.redeem_pv : item.redeem_uv, est: false },
       ];
       const maxFunnel = Math.max(...funnelSteps.map(s => s.value || 0), 1);
 
@@ -370,7 +378,7 @@ function openLayer2(catKey) {
             <span class="fg-label">${step.label}</span>
             <span class="fg-num">${numStr}</span>
           </div>
-          <div style="font-size:9px;${estColor};margin-top:2px;line-height:1.2;cursor:${step.est?'help':'default'}" ${step.est?'title="到店人数 = 领取人数 × 领取到店率"':''}>${estLabel}</div>
+          <div style="font-size:9px;${estColor};margin-top:2px;line-height:1.2;cursor:${step.est?'help':'default'}" ${step.est?`title="${storeTooltip}"`:''}>${estLabel}</div>
         </div>`;
         if (fi < funnelSteps.length - 1) {
           html += `<div class="fg-arrow">▶</div>`;
@@ -495,7 +503,12 @@ function openLayer3(catKey, activityId, brandId) {
             <span class="ft-loss">| 流失率 ${fmtPct(lossRate(clmToStore))}</span>
           </div>
           <div class="funnel-level" style="width:65%;background:${color}AA">
-            <span class="fl-text">到店人数 *预估 = ${storeVisitUv !== null ? fmtNum(storeVisitUv) : '-'}人${isPV ? ' <span style="font-size:10px;opacity:0.7">(UV口径)</span>' : ''}</span>
+            <span class="fl-text">到店${isPV ? '次数' : '人数'} *预估 = ${(() => {
+              const sv = isPV
+                ? ((!isNaN(clmToStore) && clmToStore > 0 && claimVal > 0) ? Math.round(claimVal * clmToStore) : null)
+                : storeVisitUv;
+              return sv !== null ? fmtNum(sv) : '-';
+            })()}${isPV ? '次' : '人'}</span>
           </div>
           <div class="funnel-transition">
             <span class="ft-label">到店核销率</span>
@@ -521,7 +534,7 @@ function openLayer3(catKey, activityId, brandId) {
           </tbody>
         </table>
         <div class="cmp-note">数据更新时间：${latestByBrand[item.brand_id]?.report_date || '-'}</div>
-        <div class="cmp-note" style="margin-top:4px;font-size:10px;color:#94A3B8">口径说明：转化率均为活动维度UV口径；到店人数 = 领取人数 × 领取到店率（预估）</div>
+        <div class="cmp-note" style="margin-top:4px;font-size:10px;color:#94A3B8">口径说明：转化率为活动维度${isPV ? 'PV' : 'UV'}口径；到店${isPV ? '次数' : '人数'} = 领取${isPV ? '次数' : '人数'} × 领取到店率UV（预估）</div>
       </div>
     </div>
   </div>`;
