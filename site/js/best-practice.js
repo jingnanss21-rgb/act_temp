@@ -117,8 +117,12 @@ async function loadBestPracticeData() {
       const rUv = act.redeem_uv || 0;
       if (ePv === 0 && eUv === 0) continue;
 
-      const storeRate = parseRateValue(act.store_redeem_rate_uv);
-      const storeVisitUv = (!isNaN(storeRate) && storeRate > 0) ? Math.round(rUv / storeRate) : null;
+      // V2.1: 用真实领取到店率计算到店人数
+      const claimToStoreRate = parseRateValue(act.claim_to_store_rate_uv);
+      const storeVisitUv = (!isNaN(claimToStoreRate) && claimToStoreRate > 0 && cUv > 0)
+        ? Math.round(cUv * claimToStoreRate) : null;
+      // 到店核销率：以核销UV为准修正（核销UV / 到店人数）
+      const storeRate = (storeVisitUv !== null && storeVisitUv > 0) ? rUv / storeVisitUv : parseRateValue(act.store_redeem_rate_uv);
 
       const item = {
         brand_id: act.brand_id,

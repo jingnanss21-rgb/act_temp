@@ -115,13 +115,24 @@ function computeCategoryStats() {
     const bd = diagBrandDaily[a.brand_id];
     const storeRateRaw = a.store_redeem_rate_uv != null ? a.store_redeem_rate_uv : (bd ? bd.w7_store_redeem_rate_uv : null);
 
+    // V2.1: 用真实领取到店率算到店人数，以核销UV为准修正到店核销率
+    const claimToStoreRate = parseStoreRate(a.claim_to_store_rate_uv);
+    const cUv = a.claim_uv || 0;
+    const rUv = a.redeem_uv || 0;
+    const storeVisitUv = (!isNaN(claimToStoreRate) && claimToStoreRate > 0 && cUv > 0)
+      ? Math.round(cUv * claimToStoreRate) : null;
+    const correctedStoreRedeem = (storeVisitUv !== null && storeVisitUv > 0)
+      ? rUv / storeVisitUv : parseStoreRate(storeRateRaw);
+
     const item = {
       ...a,
       category: cat,
       exposure_claim: a.claim_pv / a.exposure_pv,
       claim_redeem: a.redeem_pv / a.claim_pv,
       exposure_redeem: a.redeem_pv / a.exposure_pv,
-      store_redeem: parseStoreRate(storeRateRaw),
+      store_redeem: correctedStoreRedeem,
+      claim_to_store_rate: claimToStoreRate,
+      store_visit_uv: storeVisitUv,
     };
 
     if (item.exposure_claim > (RATE_CAPS.exposure_claim || 1)) continue;
@@ -289,11 +300,25 @@ function runDiagnosis() {
   const totalExposurePv = brandActivities.reduce((s, a) => s + (a.exposure_pv || 0), 0);
   const totalClaimPv = brandActivities.reduce((s, a) => s + (a.claim_pv || 0), 0);
   const totalRedeemPv = brandActivities.reduce((s, a) => s + (a.redeem_pv || 0), 0);
-  // V2: store_redeem_rate 优先取活动级（取第一个有值的），fallback 品牌级
-  let storeRate = NaN;
+  const totalClaimUv = brandActivities.reduce((s, a) => s + (a.claim_uv || 0), 0);
+  const totalRedeemUv = brandActivities.reduce((s, a) => s + (a.redeem_uv || 0), 0);
+
+  // V2.1: 用真实领取到店率，到店人数=预估，到店核销率以核销UV为准修正
+  let claimToStoreRate = NaN;
   for (const a of brandActivities) {
-    const sr = parseStoreRate(a.store_redeem_rate_uv);
-    if (!isNaN(sr) && sr > 0) { storeRate = sr; break; }
+    const r = parseStoreRate(a.claim_to_store_rate_uv);
+    if (!isNaN(r) && r > 0) { claimToStoreRate = r; break; }
+  }
+  const totalStoreVisitUv = (!isNaN(claimToStoreRate) && claimToStoreRate > 0 && totalClaimUv > 0)
+    ? Math.round(totalClaimUv * claimToStoreRate) : null;
+  let storeRate = (totalStoreVisitUv !== null && totalStoreVisitUv > 0)
+    ? totalRedeemUv / totalStoreVisitUv : NaN;
+  // fallback
+  if (isNaN(storeRate)) {
+    for (const a of brandActivities) {
+      const sr = parseStoreRate(a.store_redeem_rate_uv);
+      if (!isNaN(sr) && sr > 0) { storeRate = sr; break; }
+    }
   }
   if (isNaN(storeRate) && brandDaily) {
     storeRate = parseStoreRate(brandDaily.w7_store_redeem_rate_uv);

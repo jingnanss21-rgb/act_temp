@@ -2,12 +2,18 @@
  * activity-alerts.js - 活动预警模块（Tab4）
  * 到期预警：活动结束日期 ≤7天
  * 库存预警：按日均消耗预测剩余天数 ≤7天
+ * 支持按服务商、对接助理多选筛选
  */
 
 let alertsData = [];
+let alertMerchantMap = {};  // brand_id → { contact_assistant, operating_sp }
+let alertSpOwnerMap = {};   // sp_name → owner
+let alertAllExpiry = [];
+let alertAllStock = [];
+let alertFilterAssistant = new Set();
+let alertFilterSP = new Set();
 
 function parseEndDate(dateStr) {
-  // 格式 "20260429" → Date
   if (!dateStr || dateStr === '-') return null;
   const s = String(dateStr).trim();
   if (s.length === 8) {
@@ -40,33 +46,54 @@ async function loadActivityAlerts() {
   container.innerHTML = '<div class="loading"><div class="spinner"></div><p>加载预警数据...</p></div>';
 
   try {
-    // 从7d视图取数据（需要 day_count 计算日均消耗）
-    const data = await fetchAllFromView('v_activity_7d', '*');
-    alertsData = data;
+    const [data, merchantResult, spResult] = await Promise.all([
+      fetchAllFromView('v_activity_7d', '*'),
+      supabaseClient.from('tem_merchant_contacts')
+        .select('brand_id, operating_sp, contact_assistant').limit(5000),
+      supabaseClient.from('tem_sp_assignments')
+        .select('sp_name, owner').limit(500),
+    ]);
 
-    const expiryAlerts = [];
-    const stockAlerts = [];
+    // 构建关联 map
+    alertMerchantMap = {};
+    for (const m of (merchantResult.data || [])) {
+      if (m.brand_id) {
+        alertMerchantMap[String(m.brand_id)] = {
+          contact_assistant: m.contact_assistant || '',
+          operating_sp: m.operating_sp || '',
+        };
+      }
+    }
+    alertSpOwnerMap = {};
+    for (const s of (spResult.data || [])) {
+      if (s.sp_name) alertSpOwnerMap[s.sp_name] = s.owner || '';
+    }
+
+    alertsData = data;
+    alertAllExpiry = [];
+    alertAllStock = [];
 
     for (const act of data) {
+      const bid = String(act.brand_id);
+      const merchant = alertMerchantMap[bid] || {};
+      const enriched = {
+        ...act,
+        contact_assistant: merchant.contact_assistant || '-',
+        operating_sp: merchant.operating_sp || '-',
+      };
+
       const daysLeft = daysUntil(act.end_date);
       const level = alertLevel(daysLeft);
 
-      // 到期预警
       if (level) {
-        expiryAlerts.push({
-          ...act,
-          days_left: daysLeft,
-          level: level,
-        });
+        alertAllExpiry.push({ ...enriched, days_left: daysLeft, level: level });
       }
 
-      // 库存预警（排除无限库存）
       const totalStock = act.total_stock || 0;
       const remainStock = act.remain_stock || 0;
       const dayCount = act.day_count || 1;
 
-      if (totalStock >= 100000000) continue; // 无限库存
-      if (totalStock <= 0) continue; // 无库存信息
+      if (totalStock >= 100000000 || totalStock <= 0) continue;
 
       const consumed = totalStock - remainStock;
       const dailyConsumption = consumed / dayCount;
@@ -75,8 +102,8 @@ async function loadActivityAlerts() {
         const daysToDeplete = Math.ceil(remainStock / dailyConsumption);
         const stockLevel = alertLevel(daysToDeplete);
         if (stockLevel) {
-          stockAlerts.push({
-            ...act,
+          alertAllStock.push({
+            ...enriched,
             days_to_deplete: daysToDeplete,
             daily_consumption: Math.round(dailyConsumption),
             remain_pct: totalStock > 0 ? (remainStock / totalStock * 100).toFixed(1) : 0,
@@ -86,88 +113,167 @@ async function loadActivityAlerts() {
       }
     }
 
-    // 排序：红色优先，然后按天数升序
-    expiryAlerts.sort((a, b) => a.days_left - b.days_left);
-    stockAlerts.sort((a, b) => a.days_to_deplete - b.days_to_deplete);
+    alertAllExpiry.sort((a, b) => a.days_left - b.days_left);
+    alertAllStock.sort((a, b) => a.days_to_deplete - b.days_to_deplete);
 
-    const redExpiry = expiryAlerts.filter(a => a.level === 'red').length;
-    const yellowExpiry = expiryAlerts.filter(a => a.level === 'yellow').length;
-    const redStock = stockAlerts.filter(a => a.level === 'red').length;
-    const yellowStock = stockAlerts.filter(a => a.level === 'yellow').length;
+    // Reset filters
+    alertFilterAssistant = new Set();
+    alertFilterSP = new Set();
 
-    let html = `<div class="alert-page">
-      <h2 class="section-title">⚠️ 活动预警</h2>
-      <p style="margin:4px 0 16px;font-size:13px;color:var(--text-muted)">
-        监控活动到期和库存耗尽风险，红色 ≤3天，黄色 4-7天
-      </p>
-
-      <!-- 汇总卡片 -->
-      <div class="alert-summary">
-        <div class="alert-summary-card" style="border-left:4px solid #DC2626">
-          <h3>🔴 紧急预警</h3>
-          <div class="alert-count ${(redExpiry + redStock) > 0 ? 'red' : 'green'}">${redExpiry + redStock}</div>
-          <div style="font-size:12px;color:#94A3B8">${redExpiry}个到期 + ${redStock}个库存</div>
-        </div>
-        <div class="alert-summary-card" style="border-left:4px solid #D97706">
-          <h3>🟡 关注预警</h3>
-          <div class="alert-count ${(yellowExpiry + yellowStock) > 0 ? 'yellow' : 'green'}">${yellowExpiry + yellowStock}</div>
-          <div style="font-size:12px;color:#94A3B8">${yellowExpiry}个到期 + ${yellowStock}个库存</div>
-        </div>
-        <div class="alert-summary-card" style="border-left:4px solid #16A34A">
-          <h3>📊 监控总量</h3>
-          <div class="alert-count green">${data.length}</div>
-          <div style="font-size:12px;color:#94A3B8">活动总数</div>
-        </div>
-      </div>
-
-      <!-- 两栏详情 -->
-      <div class="alert-two-col">
-        <div class="alert-col">
-          <div class="alert-col-header">⏰ 到期预警 (${expiryAlerts.length})</div>
-          <div class="alert-col-body">
-            ${expiryAlerts.length === 0 ? '<div class="alert-empty">暂无到期预警 🎉</div>' : ''}
-            ${expiryAlerts.map(a => `
-              <div class="alert-item level-${a.level}">
-                <div class="alert-badge ${a.level}">${a.days_left}天</div>
-                <div class="alert-info">
-                  <div class="alert-brand">${a.brand_name || '-'}</div>
-                  <div class="alert-act" title="${a.activity_name}">${a.activity_name || '-'}</div>
-                </div>
-                <div class="alert-detail">
-                  ${a.category_name || '-'}<br>
-                  截止 ${formatEndDate(a.end_date)}
-                </div>
-              </div>
-            `).join('')}
-          </div>
-        </div>
-
-        <div class="alert-col">
-          <div class="alert-col-header">📦 库存预警 (${stockAlerts.length})</div>
-          <div class="alert-col-body">
-            ${stockAlerts.length === 0 ? '<div class="alert-empty">暂无库存预警 🎉</div>' : ''}
-            ${stockAlerts.map(a => `
-              <div class="alert-item level-${a.level}">
-                <div class="alert-badge ${a.level}">${a.days_to_deplete}天</div>
-                <div class="alert-info">
-                  <div class="alert-brand">${a.brand_name || '-'}</div>
-                  <div class="alert-act" title="${a.activity_name}">${a.activity_name || '-'}</div>
-                </div>
-                <div class="alert-detail">
-                  剩余 ${a.remain_pct}%<br>
-                  日均消耗 ${fmtAlertNum(a.daily_consumption)}
-                </div>
-              </div>
-            `).join('')}
-          </div>
-        </div>
-      </div>
-    </div>`;
-
-    container.innerHTML = html;
+    renderAlerts();
   } catch (err) {
     container.innerHTML = `<div style="padding:32px;color:#DC2626">加载失败: ${err.message}</div>`;
     console.error(err);
+  }
+}
+
+function filterAlertItems(items) {
+  return items.filter(a => {
+    if (alertFilterAssistant.size > 0 && !alertFilterAssistant.has(a.contact_assistant)) return false;
+    if (alertFilterSP.size > 0 && !alertFilterSP.has(a.operating_sp)) return false;
+    return true;
+  });
+}
+
+function renderAlerts() {
+  const container = document.getElementById('alert-container');
+  const expiryAlerts = filterAlertItems(alertAllExpiry);
+  const stockAlerts = filterAlertItems(alertAllStock);
+
+  const redExpiry = expiryAlerts.filter(a => a.level === 'red').length;
+  const yellowExpiry = expiryAlerts.filter(a => a.level === 'yellow').length;
+  const redStock = stockAlerts.filter(a => a.level === 'red').length;
+  const yellowStock = stockAlerts.filter(a => a.level === 'yellow').length;
+
+  // 收集筛选选项
+  const allItems = [...alertAllExpiry, ...alertAllStock];
+  const assistants = [...new Set(allItems.map(a => a.contact_assistant).filter(v => v && v !== '-'))].sort();
+  const sps = [...new Set(allItems.map(a => a.operating_sp).filter(v => v && v !== '-'))].sort();
+
+  let html = `<div class="alert-page">
+    <h2 class="section-title">⚠️ 活动预警</h2>
+    <p style="margin:4px 0 16px;font-size:13px;color:var(--text-muted)">
+      监控活动到期和库存耗尽风险，红色 ≤3天，黄色 4-7天
+    </p>
+
+    <!-- 筛选栏 -->
+    <div class="filter-bar" style="margin-bottom:16px;padding:0">
+      <div class="filter-left">
+        <div class="multi-select-wrap" id="alert-ms-assistant"></div>
+        <div class="multi-select-wrap" id="alert-ms-sp"></div>
+      </div>
+    </div>
+
+    <!-- 汇总卡片 -->
+    <div class="alert-summary">
+      <div class="alert-summary-card" style="border-left:4px solid #DC2626">
+        <h3>🔴 紧急预警</h3>
+        <div class="alert-count ${(redExpiry + redStock) > 0 ? 'red' : 'green'}">${redExpiry + redStock}</div>
+        <div style="font-size:12px;color:#94A3B8">${redExpiry}个到期 + ${redStock}个库存</div>
+      </div>
+      <div class="alert-summary-card" style="border-left:4px solid #D97706">
+        <h3>🟡 关注预警</h3>
+        <div class="alert-count ${(yellowExpiry + yellowStock) > 0 ? 'yellow' : 'green'}">${yellowExpiry + yellowStock}</div>
+        <div style="font-size:12px;color:#94A3B8">${yellowExpiry}个到期 + ${yellowStock}个库存</div>
+      </div>
+      <div class="alert-summary-card" style="border-left:4px solid #16A34A">
+        <h3>📊 监控总量</h3>
+        <div class="alert-count green">${alertsData.length}</div>
+        <div style="font-size:12px;color:#94A3B8">活动总数</div>
+      </div>
+    </div>
+
+    <!-- 两栏详情 -->
+    <div class="alert-two-col">
+      <div class="alert-col">
+        <div class="alert-col-header">⏰ 到期预警 (${expiryAlerts.length})</div>
+        <div class="alert-col-body">
+          ${expiryAlerts.length === 0 ? '<div class="alert-empty">暂无到期预警 🎉</div>' : ''}
+          ${expiryAlerts.map(a => `
+            <div class="alert-item level-${a.level}">
+              <div class="alert-badge ${a.level}">${a.days_left}天</div>
+              <div class="alert-info">
+                <div class="alert-brand">${a.brand_name || '-'}</div>
+                <div class="alert-act" title="${a.activity_name}">${a.activity_name || '-'}</div>
+              </div>
+              <div class="alert-detail">
+                ${a.contact_assistant !== '-' ? '<span style="color:#2563EB">' + a.contact_assistant + '</span> · ' : ''}${a.operating_sp !== '-' ? a.operating_sp + '<br>' : ''}
+                截止 ${formatEndDate(a.end_date)}
+              </div>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+
+      <div class="alert-col">
+        <div class="alert-col-header">📦 库存预警 (${stockAlerts.length})</div>
+        <div class="alert-col-body">
+          ${stockAlerts.length === 0 ? '<div class="alert-empty">暂无库存预警 🎉</div>' : ''}
+          ${stockAlerts.map(a => `
+            <div class="alert-item level-${a.level}">
+              <div class="alert-badge ${a.level}">${a.days_to_deplete}天</div>
+              <div class="alert-info">
+                <div class="alert-brand">${a.brand_name || '-'}</div>
+                <div class="alert-act" title="${a.activity_name}">${a.activity_name || '-'}</div>
+              </div>
+              <div class="alert-detail">
+                ${a.contact_assistant !== '-' ? '<span style="color:#2563EB">' + a.contact_assistant + '</span> · ' : ''}${a.operating_sp !== '-' ? a.operating_sp + '<br>' : ''}
+                剩余 ${a.remain_pct}% · 日均 ${fmtAlertNum(a.daily_consumption)}
+              </div>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+    </div>
+  </div>`;
+
+  container.innerHTML = html;
+
+  // 构建多选筛选器
+  buildAlertMultiSelect('alert-ms-assistant', '对接助理', assistants, alertFilterAssistant);
+  buildAlertMultiSelect('alert-ms-sp', '服务商', sps, alertFilterSP);
+}
+
+function buildAlertMultiSelect(containerId, label, options, stateSet) {
+  const container = document.getElementById(containerId);
+  if (!container) return;
+  container.innerHTML = `
+    <div class="multi-select-btn" onclick="toggleAlertDropdown('${containerId}')">
+      <span>${label} <span class="multi-count-${containerId}"></span></span>
+      <span class="arrow">▾</span>
+    </div>
+    <div class="multi-select-dropdown" id="dd-${containerId}">
+      ${options.map(opt =>
+        `<label class="multi-select-option">
+          <input type="checkbox" value="${opt}" onchange="onAlertFilterChange('${containerId}', this)" ${stateSet.has(opt) ? 'checked' : ''}>
+          ${opt}
+        </label>`
+      ).join('')}
+    </div>`;
+  updateAlertMultiCount(containerId, stateSet);
+}
+
+function toggleAlertDropdown(containerId) {
+  const dd = document.getElementById('dd-' + containerId);
+  dd?.classList.toggle('show');
+  // 关闭其他
+  document.querySelectorAll('#alert-container .multi-select-dropdown').forEach(el => {
+    if (el.id !== 'dd-' + containerId) el.classList.remove('show');
+  });
+}
+
+function onAlertFilterChange(containerId, checkbox) {
+  let stateSet = containerId === 'alert-ms-assistant' ? alertFilterAssistant : alertFilterSP;
+  if (checkbox.checked) stateSet.add(checkbox.value);
+  else stateSet.delete(checkbox.value);
+  updateAlertMultiCount(containerId, stateSet);
+  renderAlerts();
+}
+
+function updateAlertMultiCount(containerId, stateSet) {
+  const countEl = document.querySelector(`.multi-count-${containerId}`);
+  if (countEl) {
+    countEl.innerHTML = stateSet.size > 0 ? `<span class="multi-select-count">${stateSet.size}</span>` : '';
   }
 }
 

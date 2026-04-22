@@ -27,7 +27,7 @@ from supabase_writer import get_client, upsert_batch
 # 导览表 file_id
 NAV_FILE_ID = "DWWtkT0Rrd2pCSnV1"
 
-# 底表字段 → DB 列名
+# 底表字段 → DB 列名（兼容新旧两版字段名）
 FIELD_MAP = {
     "品牌ID":       "brand_id",
     "品牌名称":     "brand_name",
@@ -35,11 +35,24 @@ FIELD_MAP = {
     "活动ID":       "activity_id",
     "活动名称":     "activity_name",
     "批次名称":     "batch_name",
+    "券批次id":     "batch_id",
     "活动价格力（各渠道有值渠道的算术平均）": "price_power",
     "活动开始时间": "start_date",
     "活动结束时间": "end_date",
     "发券总库存":   "total_stock",
     "券剩余库存":   "remain_stock",
+    # 新版字段名（25列版，带"最大值"后缀）
+    "曝光数(最大值)":      "exposure_pv",
+    "领取数(最大值)":      "claim_pv",
+    "核销数(最大值)":      "redeem_pv",
+    "曝光uin数(最大值)":   "exposure_uv",
+    "领取uin数(最大值)":   "claim_uv",
+    "核销uin数(最大值)":   "redeem_uv",
+    "领取到店率_uv\t(最大值)":  "claim_to_store_rate_uv",
+    "到店核销率_uv\t(最大值)":  "store_redeem_rate_uv",
+    "核销到店率_uv\t(最大值)":  "redeem_to_store_rate_uv",
+    "到店未达门槛占比(最大值)":  "store_below_threshold",
+    # 旧版字段名（19列版，无后缀）
     "当日曝光次数": "exposure_pv",
     "当日领取次数": "claim_pv",
     "当日核销次数": "redeem_pv",
@@ -48,6 +61,9 @@ FIELD_MAP = {
     "当日核销用户数": "redeem_uv",
     "近7日均_到店核销率_uv":    "store_redeem_rate_uv",
     "近7日均_到店未达门槛占比": "store_below_threshold",
+    # 新增券信息
+    "优惠门槛":     "threshold_amount",
+    "优惠金额":     "discount_amount",
 }
 
 # 备选字段名（底表可能有不同的列名格式）
@@ -58,6 +74,9 @@ FIELD_ALIASES = {
     "近7日均_到店核销率UV": "store_redeem_rate_uv",
     "近7日均_到店核销率_UV": "store_redeem_rate_uv",
     "近7日均_到店未达门槛占比_uv": "store_below_threshold",
+    "领取到店率_uv(最大值)": "claim_to_store_rate_uv",
+    "到店核销率_uv(最大值)": "store_redeem_rate_uv",
+    "核销到店率_uv(最大值)": "redeem_to_store_rate_uv",
 }
 
 
@@ -122,7 +141,7 @@ def _map_row(row: dict, report_date: str):
     """将底表一行映射为 DB record"""
     record = {"report_date": report_date}
 
-    # 先用主字段映射
+    # 先用主字段映射（精确匹配）
     for src, db_col in FIELD_MAP.items():
         if src in row:
             record[db_col] = row[src]
@@ -132,6 +151,22 @@ def _map_row(row: dict, report_date: str):
         if db_col not in record or record[db_col] is None:
             if src in row:
                 record[db_col] = row[src]
+
+    # 模糊匹配：底表字段名可能带tab或空格，做 contains 匹配
+    for row_key, row_val in row.items():
+        if row_val is None:
+            continue
+        rk = row_key.replace('\t', '').replace(' ', '').strip()
+        if '领取到店率' in rk and 'claim_to_store_rate_uv' not in record:
+            record['claim_to_store_rate_uv'] = row_val
+        elif '到店核销率' in rk and rk.startswith('到店') and 'store_redeem_rate_uv' not in record:
+            record['store_redeem_rate_uv'] = row_val
+        elif '核销到店率' in rk and 'redeem_to_store_rate_uv' not in record:
+            record['redeem_to_store_rate_uv'] = row_val
+        elif '到店未达门槛' in rk and 'store_below_threshold' not in record:
+            record['store_below_threshold'] = row_val
+        elif '券类型' in rk and 'coupon_type' not in record:
+            record['coupon_type'] = row_val
 
     # 必须有 activity_id
     activity_id = _safe_str(record.get("activity_id", ""))
@@ -145,10 +180,14 @@ def _map_row(row: dict, report_date: str):
     record["category_name"] = _safe_str(record.get("category_name", ""))
     record["activity_name"] = _safe_str(record.get("activity_name", ""))
     record["batch_name"] = _safe_str(record.get("batch_name", ""))
+    record["batch_id"] = _safe_str(record.get("batch_id", ""))
+    record["coupon_type"] = _safe_str(record.get("coupon_type", ""))
     record["start_date"] = _safe_str(record.get("start_date", ""))
     record["end_date"] = _safe_str(record.get("end_date", ""))
 
     record["price_power"] = _safe_numeric(record.get("price_power"))
+    record["threshold_amount"] = _safe_numeric(record.get("threshold_amount"))
+    record["discount_amount"] = _safe_numeric(record.get("discount_amount"))
     record["total_stock"] = _safe_int(record.get("total_stock", 0))
     record["remain_stock"] = _safe_int(record.get("remain_stock", 0))
 
@@ -160,6 +199,8 @@ def _map_row(row: dict, report_date: str):
     record["redeem_uv"] = _safe_int(record.get("redeem_uv", 0))
 
     record["store_redeem_rate_uv"] = _safe_numeric(record.get("store_redeem_rate_uv"))
+    record["claim_to_store_rate_uv"] = _safe_numeric(record.get("claim_to_store_rate_uv"))
+    record["redeem_to_store_rate_uv"] = _safe_numeric(record.get("redeem_to_store_rate_uv"))
     record["store_below_threshold"] = _safe_numeric(record.get("store_below_threshold"))
 
     return record
