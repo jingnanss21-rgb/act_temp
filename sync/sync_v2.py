@@ -20,6 +20,10 @@ load_dotenv()
 from doc_reader import (
     read_index_table_with_links,
     read_target_sheet,
+    export_file,
+    download_xlsx,
+    extract_hyperlinks,
+    extract_file_id_from_url,
 )
 from supabase_writer import get_client, upsert_batch
 
@@ -217,8 +221,26 @@ def sync_v2(latest_only: bool = False, date_filter: str = ""):
     print("V2 同步 tem_activity_daily（每日活动快照）")
     print("=" * 60)
 
-    # 第一跳：读导览表
-    nav_entries = read_index_table_with_links(NAV_FILE_ID)
+    # 第一跳：读导览表（无表头，每行都是数据+超链接）
+    url = export_file(NAV_FILE_ID)
+    xlsx_path = download_xlsx(url)
+    hyperlinks = extract_hyperlinks(xlsx_path)
+
+    from openpyxl import load_workbook
+    wb = load_workbook(xlsx_path, data_only=True)
+    ws = wb.worksheets[0]
+    nav_entries = []
+    for row_num in range(1, (ws.max_row or 100) + 1):
+        text = ws.cell(row_num, 1).value
+        if not text:
+            continue
+        text = str(text).strip()
+        link = hyperlinks.get(f"A{row_num}", "")
+        fid = extract_file_id_from_url(link) if link else ""
+        nav_entries.append({"text": text, "url": link, "file_id": fid})
+    wb.close()
+    os.unlink(xlsx_path)
+
     valid = [e for e in nav_entries if e["file_id"] and e["url"]]
     print(f"  导览表共 {len(nav_entries)} 条，有效 {len(valid)} 条")
 
