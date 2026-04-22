@@ -353,7 +353,7 @@ function openLayer2(catKey) {
             <span class="fg-label">${step.label}</span>
             <span class="fg-num">${numStr}</span>
           </div>
-          <div style="font-size:9px;${estColor};margin-top:2px;line-height:1.2;cursor:${step.est?'help':'default'}" ${step.est?'title="因活动维度到店核销数据缺失，暂按照品牌维度到店核销倒推"':''}>${estLabel}</div>
+          <div style="font-size:9px;${estColor};margin-top:2px;line-height:1.2;cursor:${step.est?'help':'default'}" ${step.est?'title="到店人数 = 核销人数 / 到店核销率"':''}>${estLabel}</div>
         </div>`;
         if (fi < funnelSteps.length - 1) {
           html += `<div class="fg-arrow">▶</div>`;
@@ -468,7 +468,7 @@ function openLayer3(catKey, activityId, brandId) {
             <span class="fl-text">领取人数 = ${fmtNum(claimUv)}人</span>
           </div>
           <div class="funnel-transition">
-            <span class="ft-label">领取到店率 *预估</span>
+            <span class="ft-label">领取到店率</span>
             <span class="ft-conv">${fmtPct(clmToStore)}</span>
             <span class="ft-loss">| 流失率 ${fmtPct(lossRate(clmToStore))}</span>
           </div>
@@ -493,12 +493,13 @@ function openLayer3(catKey, activityId, brandId) {
           <tbody>
             ${comparisonRow('曝光领取率', expClm, meds.exposure_claim)}
             ${comparisonRow('领取核销率', clmRdm, meds.claim_redeem)}
-            ${comparisonRow('领取到店率<sup class="est-tag">*预估</sup>', clmToStore, meds.claim_to_store)}
+            ${comparisonRow('领取到店率', clmToStore, meds.claim_to_store)}
             ${comparisonRow('到店核销率', storeRdm, meds.store_redeem)}
             ${comparisonRow('全链路转化率<br><span style="font-size:10px;color:#8C8C8C">(曝光核销率)</span>', expRdm, meds.exposure_redeem)}
           </tbody>
         </table>
         <div class="cmp-note">数据更新时间：${latestByBrand[item.brand_id]?.report_date || '-'}</div>
+        <div class="cmp-note" style="margin-top:4px;font-size:10px;color:#94A3B8">口径说明：转化率均为活动维度UV口径；到店人数 = 核销人数 / 到店核销率（预估）</div>
       </div>
     </div>
   </div>`;

@@ -445,7 +445,7 @@ function renderDiagResult() {
         ];
         const allArrows = [
           { rateLabel: '曝光领取率', rate: fp(expClm), loss: fp(lossRate(expClm)), ext: false },
-          { rateLabel: '领取到店率*预估', rate: fp(clmToStore), loss: fp(lossRate(clmToStore)), ext: true },
+          { rateLabel: '领取到店率', rate: fp(clmToStore), loss: fp(lossRate(clmToStore)), ext: true },
           { rateLabel: '到店核销率', rate: fp(storeRdm), loss: fp(lossRate(storeRdm)), ext: true },
         ];
         const nodes = isExt ? allNodes.filter(n => n.ext !== false) : allNodes;
@@ -517,6 +517,11 @@ function renderDiagResult() {
         <button class="diag-view-toggle-btn" id="diag-view-toggle" onclick="event.stopPropagation();toggleDiagView()">对比视图</button>
       </div>
       <div id="diag-d-body" style="display:none;margin-top:16px">${renderDiagActivities()}</div>
+    </div>
+
+    <!-- 口径说明 -->
+    <div style="padding:8px 0 16px;font-size:11px;color:#94A3B8;line-height:1.6">
+      口径说明：转化率均为活动维度UV口径；到店人数 = 核销人数 / 到店核销率（预估）；价格力原值÷100为实际折扣率
     </div>
   `;
 
