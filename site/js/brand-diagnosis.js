@@ -115,12 +115,12 @@ function computeCategoryStats() {
     const bd = diagBrandDaily[a.brand_id];
     const storeRateRaw = a.store_redeem_rate_uv != null ? a.store_redeem_rate_uv : (bd ? bd.w7_store_redeem_rate_uv : null);
 
-    // V2.1: 到店核销率直接用DB真实值，到店人数用倒推预估
+    // V2.1: 到店核销率直接用DB真实值，到店人数 = 领取UV × 领取到店率（预估）
     const storeRedeem = parseStoreRate(storeRateRaw);
     const claimToStoreRate = parseStoreRate(a.claim_to_store_rate_uv);
-    const rUv = a.redeem_uv || 0;
-    const storeVisitUv = (!isNaN(storeRedeem) && storeRedeem > 0 && rUv > 0)
-      ? Math.round(rUv / storeRedeem) : null;
+    const cUv = a.claim_uv || 0;
+    const storeVisitUv = (!isNaN(claimToStoreRate) && claimToStoreRate > 0 && cUv > 0)
+      ? Math.round(cUv * claimToStoreRate) : null;
 
     const item = {
       ...a,
@@ -459,7 +459,17 @@ function renderDiagResult() {
         const claimPv = b.totals.claim_pv;
         const redeemPv = b.totals.redeem_pv;
         const storeRdmRate = b.metrics.store_redeem;
-        const storeVisit = (storeRdmRate > 0) ? Math.round(redeemPv / storeRdmRate) : null;
+        // 到店人数 = 领取人数 × 领取到店率（预估）
+        let ctsWSum = 0, ctsWDen = 0;
+        for (const a of b.activities) {
+          const r = parseStoreRate(a.claim_to_store_rate_uv);
+          const cu = a.claim_uv || 0;
+          if (!isNaN(r) && r > 0 && cu > 0) { ctsWSum += r * cu; ctsWDen += cu; }
+        }
+        const brandClmToStore = ctsWDen > 0 ? ctsWSum / ctsWDen : NaN;
+        const totalClaimUvFunnel = b.activities.reduce((s, a) => s + (a.claim_uv || 0), 0);
+        const storeVisit = (!isNaN(brandClmToStore) && brandClmToStore > 0 && totalClaimUvFunnel > 0)
+          ? Math.round(totalClaimUvFunnel * brandClmToStore) : null;
         const expClm = claimPv / Math.max(exposurePv, 1);
         // 领取到店率：按领取UV加权平均各活动的真实值
         let ctsWSum = 0, ctsWDen = 0;
@@ -557,7 +567,7 @@ function renderDiagResult() {
 
     <!-- 口径说明 -->
     <div style="padding:8px 0 16px;font-size:11px;color:#94A3B8;line-height:1.6">
-      口径说明：转化率均为活动维度UV口径；到店人数 = 核销人数 / 到店核销率（预估）；价格力原值÷100为实际折扣率
+      口径说明：转化率均为活动维度UV口径；到店人数 = 领取人数 × 领取到店率（预估）；价格力原值÷100为实际折扣率
     </div>
   `;
 

@@ -117,12 +117,11 @@ async function loadBestPracticeData() {
       const rUv = act.redeem_uv || 0;
       if (ePv === 0 && eUv === 0) continue;
 
-      // V2.1: 各率直接用DB真实值，到店人数用倒推预估
+      // V2.1: 各率直接用DB真实值，到店人数 = 领取UV × 领取到店率（预估）
       const storeRate = parseRateValue(act.store_redeem_rate_uv);
       const claimToStoreRate = parseRateValue(act.claim_to_store_rate_uv);
-      // 到店人数 = 核销UV / 到店核销率（预估）
-      const storeVisitUv = (!isNaN(storeRate) && storeRate > 0 && rUv > 0)
-        ? Math.round(rUv / storeRate) : null;
+      const storeVisitUv = (!isNaN(claimToStoreRate) && claimToStoreRate > 0 && cUv > 0)
+        ? Math.round(cUv * claimToStoreRate) : null;
 
       const item = {
         brand_id: act.brand_id,
@@ -353,7 +352,7 @@ function openLayer2(catKey) {
             <span class="fg-label">${step.label}</span>
             <span class="fg-num">${numStr}</span>
           </div>
-          <div style="font-size:9px;${estColor};margin-top:2px;line-height:1.2;cursor:${step.est?'help':'default'}" ${step.est?'title="到店人数 = 核销人数 / 到店核销率"':''}>${estLabel}</div>
+          <div style="font-size:9px;${estColor};margin-top:2px;line-height:1.2;cursor:${step.est?'help':'default'}" ${step.est?'title="到店人数 = 领取人数 × 领取到店率"':''}>${estLabel}</div>
         </div>`;
         if (fi < funnelSteps.length - 1) {
           html += `<div class="fg-arrow">▶</div>`;
@@ -499,7 +498,7 @@ function openLayer3(catKey, activityId, brandId) {
           </tbody>
         </table>
         <div class="cmp-note">数据更新时间：${latestByBrand[item.brand_id]?.report_date || '-'}</div>
-        <div class="cmp-note" style="margin-top:4px;font-size:10px;color:#94A3B8">口径说明：转化率均为活动维度UV口径；到店人数 = 核销人数 / 到店核销率（预估）</div>
+        <div class="cmp-note" style="margin-top:4px;font-size:10px;color:#94A3B8">口径说明：转化率均为活动维度UV口径；到店人数 = 领取人数 × 领取到店率（预估）</div>
       </div>
     </div>
   </div>`;
