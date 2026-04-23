@@ -130,12 +130,23 @@ async function loadBestPracticeData() {
       const rUv = act.redeem_uv || 0;
       if (ePv === 0 && eUv === 0) continue;
 
-      // 到店人数 = 核销UV / 到店核销率（预估）
+      // 到店人数预估
       const storeRate = parseRateValue(act.store_redeem_rate_uv);
-      const storeVisitUv = (!isNaN(storeRate) && storeRate > 0 && rUv > 0)
-        ? Math.round(rUv / storeRate) : null;
-      // 领取到店率 = 预估到店人数 / 领取人数（预估）
-      const claimToStoreRate = (storeVisitUv !== null && cUv > 0) ? storeVisitUv / cUv : parseRateValue(act.claim_to_store_rate_uv);
+      const dbClaimToStoreRate = parseRateValue(act.claim_to_store_rate_uv);
+      // 次卡场景：一个用户可反复核销，核销UV/到店核销率会高估。改用 领取UV×领取到店率 正向估算
+      const isMultiUse = act.coupon_type && act.coupon_type.indexOf('次卡') >= 0;
+      let storeVisitUv = null;
+      if (isMultiUse) {
+        storeVisitUv = (!isNaN(dbClaimToStoreRate) && dbClaimToStoreRate > 0 && cUv > 0)
+          ? Math.round(cUv * dbClaimToStoreRate) : null;
+      } else {
+        storeVisitUv = (!isNaN(storeRate) && storeRate > 0 && rUv > 0)
+          ? Math.round(rUv / storeRate) : null;
+      }
+      // 领取到店率：次卡用DB真实值，其他场景由预估到店反推
+      const claimToStoreRate = isMultiUse
+        ? (isNaN(dbClaimToStoreRate) ? NaN : dbClaimToStoreRate)
+        : ((storeVisitUv !== null && cUv > 0) ? storeVisitUv / cUv : dbClaimToStoreRate);
 
       const item = {
         brand_id: act.brand_id,
@@ -157,6 +168,8 @@ async function loadBestPracticeData() {
         is_anomaly: false,
         // V2 新字段
         batch_name: act.batch_name || '',
+        coupon_type: act.coupon_type || '',
+        is_multi_use: isMultiUse,
         price_power: act.price_power,
         total_stock: act.total_stock || 0,
         remain_stock: act.remain_stock || 0,
@@ -364,14 +377,18 @@ function openLayer2(catKey) {
       }
 
       // 渐变漏斗（曝光→领取→到店→核销）
-      // 到店 = 核销 / 到店核销率（预估）
+      // 到店 = 核销 / 到店核销率；次卡场景用 领取 × 领取到店率 正向估算
       const sr = item.store_redeem_rate;
+      const cts = item.claim_to_store_rate;
+      const isMU = item.is_multi_use;
       const storeValForFunnel = isPV
-        ? ((!isNaN(sr) && sr > 0 && item.redeem_pv > 0) ? Math.round(item.redeem_pv / sr) : null)
+        ? (isMU
+            ? ((!isNaN(cts) && cts > 0 && item.claim_pv > 0) ? Math.round(item.claim_pv * cts) : null)
+            : ((!isNaN(sr) && sr > 0 && item.redeem_pv > 0) ? Math.round(item.redeem_pv / sr) : null))
         : storeVisit;
-      const storeTooltip = isPV
-        ? '到店次数 = 核销次数 / 到店核销率（预估）'
-        : '到店人数 = 核销人数 / 到店核销率（预估）';
+      const storeTooltip = isMU
+        ? (isPV ? '次卡场景：到店次数 = 领取次数 × 领取到店率（预估）' : '次卡场景：到店人数 = 领取人数 × 领取到店率（预估）')
+        : (isPV ? '到店次数 = 核销次数 / 到店核销率（预估）' : '到店人数 = 核销人数 / 到店核销率（预估）');
       const funnelSteps = [
         { label: '曝光', value: isPV ? item.exposure_pv : item.exposure_uv, est: false },
         { label: '领取', value: isPV ? item.claim_pv : item.claim_uv, est: false },
@@ -520,7 +537,9 @@ function openLayer3(catKey, activityId, brandId) {
           <div class="funnel-level" style="width:65%;background:${color}AA">
             <span class="fl-text">到店${isPV ? '次数' : '人数'} *预估 = ${(() => {
               const sv = isPV
-                ? ((!isNaN(storeRdm) && storeRdm > 0 && redeemVal > 0) ? Math.round(redeemVal / storeRdm) : null)
+                ? (item.is_multi_use
+                    ? ((!isNaN(clmToStore) && clmToStore > 0 && claimVal > 0) ? Math.round(claimVal * clmToStore) : null)
+                    : ((!isNaN(storeRdm) && storeRdm > 0 && redeemVal > 0) ? Math.round(redeemVal / storeRdm) : null))
                 : storeVisitUv;
               return sv !== null ? fmtNum(sv) : '-';
             })()}${isPV ? '次' : '人'}</span>
@@ -549,7 +568,7 @@ function openLayer3(catKey, activityId, brandId) {
           </tbody>
         </table>
         <div class="cmp-note">数据更新时间：${latestByBrand[item.brand_id]?.report_date || '-'}</div>
-        <div class="cmp-note" style="margin-top:4px;font-size:10px;color:#94A3B8">口径说明：转化率为活动维度${isPV ? 'PV' : 'UV'}口径；到店${isPV ? '次数' : '人数'} = 核销${isPV ? '次数' : '人数'} / 到店核销率（预估）；领取到店率由预估到店反推</div>
+        <div class="cmp-note" style="margin-top:4px;font-size:10px;color:#94A3B8">口径说明：转化率为活动维度${isPV ? 'PV' : 'UV'}口径；到店${isPV ? '次数' : '人数'} ${item.is_multi_use ? '= 领取 × 领取到店率（次卡场景）' : '= 核销 / 到店核销率'}（预估）</div>
       </div>
     </div>
   </div>`;

@@ -125,14 +125,25 @@ function computeCategoryStats() {
     // V2: 到店核销率直接用活动级 store_redeem_rate_uv
     const storeRateRaw = a.store_redeem_rate_uv;
 
-    // 到店人数 = 核销UV / 到店核销率（预估）
+    // 到店人数预估
     const storeRedeem = parseStoreRate(storeRateRaw);
+    const dbClaimToStoreRate = parseStoreRate(a.claim_to_store_rate_uv);
     const rUv = a.redeem_uv || 0;
     const cUv = a.claim_uv || 0;
-    const storeVisitUv = (!isNaN(storeRedeem) && storeRedeem > 0 && rUv > 0)
-      ? Math.round(rUv / storeRedeem) : null;
-    // 领取到店率 = 预估到店人数 / 领取人数
-    const claimToStoreRate = (storeVisitUv !== null && cUv > 0) ? storeVisitUv / cUv : parseStoreRate(a.claim_to_store_rate_uv);
+    // 次卡场景：用 领取UV × 领取到店率 正向估算
+    const isMultiUse = a.coupon_type && a.coupon_type.indexOf('次卡') >= 0;
+    let storeVisitUv = null;
+    if (isMultiUse) {
+      storeVisitUv = (!isNaN(dbClaimToStoreRate) && dbClaimToStoreRate > 0 && cUv > 0)
+        ? Math.round(cUv * dbClaimToStoreRate) : null;
+    } else {
+      storeVisitUv = (!isNaN(storeRedeem) && storeRedeem > 0 && rUv > 0)
+        ? Math.round(rUv / storeRedeem) : null;
+    }
+    // 领取到店率：次卡用DB真实值，其他由预估到店反推
+    const claimToStoreRate = isMultiUse
+      ? (isNaN(dbClaimToStoreRate) ? NaN : dbClaimToStoreRate)
+      : ((storeVisitUv !== null && cUv > 0) ? storeVisitUv / cUv : dbClaimToStoreRate);
 
     // 根据当前UV/PV口径取值
     const t = window.currentMetricType || 'uv';
@@ -479,10 +490,23 @@ function renderDiagResult() {
         const claimVal = b.totals.claim;
         const redeemVal = b.totals.redeem;
         const storeRdmRate = b.metrics.store_redeem;
-        // 到店 = 核销 / 到店核销率（预估）
-        const totalRedeemUvFunnel = b.activities.reduce((s, a) => s + (a.redeem_uv || 0), 0);
-        const storeVisit = (storeRdmRate > 0 && totalRedeemUvFunnel > 0)
-          ? Math.round(totalRedeemUvFunnel / storeRdmRate) : null;
+        // 到店人数估算：分次卡/非次卡分别计算后加总
+        // 非次卡: 核销UV / 到店核销率
+        // 次卡:   领取UV × 领取到店率
+        let storeVisit = 0, storeVisitValid = false;
+        for (const a of b.activities) {
+          const isMU = a.coupon_type && a.coupon_type.indexOf('次卡') >= 0;
+          const sr = parseStoreRate(a.store_redeem_rate_uv);
+          const cts = parseStoreRate(a.claim_to_store_rate_uv);
+          const ru = a.redeem_uv || 0;
+          const cu = a.claim_uv || 0;
+          if (isMU) {
+            if (!isNaN(cts) && cts > 0 && cu > 0) { storeVisit += cu * cts; storeVisitValid = true; }
+          } else {
+            if (!isNaN(sr) && sr > 0 && ru > 0) { storeVisit += ru / sr; storeVisitValid = true; }
+          }
+        }
+        storeVisit = storeVisitValid ? Math.round(storeVisit) : null;
         // 领取到店率 = 预估到店 / 领取
         const totalClaimUvFunnel = b.activities.reduce((s, a) => s + (a.claim_uv || 0), 0);
         const clmToStore = (storeVisit !== null && totalClaimUvFunnel > 0) ? storeVisit / totalClaimUvFunnel : NaN;
@@ -582,7 +606,7 @@ function renderDiagResult() {
 
     <!-- 口径说明 -->
     <div style="padding:8px 0 16px;font-size:11px;color:#94A3B8;line-height:1.6">
-      口径说明：转化率为活动维度${(window.currentMetricType||'uv')==='pv'?'PV':'UV'}口径；到店${(window.currentMetricType||'uv')==='pv'?'次数':'人数'} = 核销${(window.currentMetricType||'uv')==='pv'?'次数':'人数'} / 到店核销率（预估）；领取到店率由预估到店反推；价格力原值÷100为实际折扣率
+      口径说明：转化率为活动维度${(window.currentMetricType||'uv')==='pv'?'PV':'UV'}口径；到店${(window.currentMetricType||'uv')==='pv'?'次数':'人数'} = 核销/到店核销率（次卡场景用 领取×领取到店率）；领取到店率由预估到店反推；价格力原值÷100为实际折扣率
     </div>
   `;
 
