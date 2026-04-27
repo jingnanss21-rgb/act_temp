@@ -753,13 +753,91 @@ function renderSurvivalSVG(pinnedSeries, qualifiedSeries, waistSeries) {
             <text x="${x+18}" y="12" font-size="11" fill="${l.color}">${l.label}</text>`;
   }).join('');
 
-  return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:${H}px">
+  // 生成唯一ID
+  const svgId = 'survival-svg-' + Date.now();
+
+  // 构建数据点数组供 crosshair 用（所有线的所有点）
+  const allPoints = [];
+  for (const line of lines) {
+    if (line.series.length === 0) continue;
+    const map = toMap(line.series);
+    dates.forEach((d, i) => {
+      const p = map[d];
+      if (!p) return;
+      const x = P + i * xStep;
+      const y = H - P - (p.rate / maxRate) * (H - P - TOP);
+      allPoints.push({ x, y, date: p.date, rate: p.rate, alive: p.alive, total: p.total, label: line.label, color: line.color });
+    });
+  }
+
+  return `<svg id="${svgId}" viewBox="0 0 ${W} ${H}" style="width:100%;height:${H}px">
     ${legend}
     ${grids}
     ${pathsHTML}
     ${dotsHTML}
     ${xLabels.join('')}
-  </svg>`;
+    <!-- crosshair elements -->
+    <line id="${svgId}-vline" x1="0" y1="${TOP}" x2="0" y2="${H-P}" stroke="#64748B" stroke-width="1" stroke-dasharray="2,2" display="none"/>
+    <line id="${svgId}-hline" x1="${P}" y1="0" x2="${W-P}" y2="0" stroke="#64748B" stroke-width="1" stroke-dasharray="2,2" display="none"/>
+    <text id="${svgId}-xlabel" x="0" y="${H-P+14}" text-anchor="middle" font-size="10" fill="#1E293B" font-weight="600" display="none"></text>
+    <text id="${svgId}-ylabel" x="${P-4}" y="0" text-anchor="end" font-size="10" fill="#1E293B" font-weight="600" display="none"></text>
+    <circle id="${svgId}-dot" cx="0" cy="0" r="5" fill="none" stroke="#1E293B" stroke-width="2" display="none"/>
+    <!-- invisible overlay for mouse -->
+    <rect x="${P}" y="${TOP}" width="${W-P*2}" height="${H-P-TOP}" fill="transparent"
+      onmousemove="pinSurvivalCrosshair(event,'${svgId}')"
+      onmouseleave="pinSurvivalCrosshairHide('${svgId}')"/>
+  </svg>
+  <script>
+    window._pinSurvivalPts_${svgId.replace(/-/g,'_')} = ${JSON.stringify(allPoints)};
+  </script>`;
+}
+
+// Crosshair interaction for survival trend SVG
+function pinSurvivalCrosshair(event, svgId) {
+  const svg = document.getElementById(svgId);
+  if (!svg) return;
+  const pts = window['_pinSurvivalPts_' + svgId.replace(/-/g, '_')];
+  if (!pts || pts.length === 0) return;
+
+  // Get mouse position in SVG coordinates
+  const rect = svg.getBoundingClientRect();
+  const viewBox = svg.viewBox.baseVal;
+  const mouseX = ((event.clientX - rect.left) / rect.width) * viewBox.width;
+
+  // Find nearest point by x
+  let nearest = pts[0], minDist = Math.abs(pts[0].x - mouseX);
+  for (const p of pts) {
+    const dist = Math.abs(p.x - mouseX);
+    if (dist < minDist) { minDist = dist; nearest = p; }
+  }
+
+  // Update crosshair elements
+  const vline = document.getElementById(svgId + '-vline');
+  const hline = document.getElementById(svgId + '-hline');
+  const xlabel = document.getElementById(svgId + '-xlabel');
+  const ylabel = document.getElementById(svgId + '-ylabel');
+  const dot = document.getElementById(svgId + '-dot');
+
+  vline.setAttribute('x1', nearest.x); vline.setAttribute('x2', nearest.x);
+  vline.setAttribute('display', '');
+  hline.setAttribute('y1', nearest.y); hline.setAttribute('y2', nearest.y);
+  hline.setAttribute('display', '');
+  xlabel.setAttribute('x', nearest.x);
+  xlabel.textContent = nearest.date.slice(5);
+  xlabel.setAttribute('display', '');
+  ylabel.setAttribute('y', nearest.y + 4);
+  ylabel.textContent = (nearest.rate * 100).toFixed(1) + '%';
+  ylabel.setAttribute('display', '');
+  dot.setAttribute('cx', nearest.x); dot.setAttribute('cy', nearest.y);
+  dot.setAttribute('stroke', nearest.color);
+  dot.setAttribute('display', '');
+}
+
+function pinSurvivalCrosshairHide(svgId) {
+  ['vline','hline','xlabel','ylabel','dot'].forEach(suffix => {
+    const el = document.getElementById(svgId + '-' + suffix);
+    if (el) el.setAttribute('display', 'none');
+  });
 }
 
 function renderMiniExposureSVG(series) {
