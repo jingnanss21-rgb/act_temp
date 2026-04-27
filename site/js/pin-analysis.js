@@ -54,7 +54,7 @@ async function loadPinAnalysis() {
     const [pinnedOps, waistQual, brandDaily, actDaily, notes] = await Promise.all([
       fetchAll('tem_pinned_ops', '*'),
       fetchAll('tem_waist_qualified', '*'),
-      fetchAll('tem_brand_daily', 'brand_id,brand_name,category_l4,w7_avg_txn_count,is_online_today,is_alive_w7,report_date,daily_exposure_pv,daily_claim_pv,daily_redeem_pv,w7_high_freq_rate_uv,w7_low_freq_rate_uv,w7_store_redeem_rate_uv', 'report_date.desc'),
+      fetchAll('tem_brand_daily', 'brand_id,brand_name,category_l4,w7_avg_txn_count,is_online_today,is_alive_w7,report_date,daily_exposure_pv,daily_claim_pv,daily_redeem_pv,daily_exposure_redeem_rate,w7_high_freq_rate_uv,w7_low_freq_rate_uv,w7_store_redeem_rate_uv', 'report_date.desc'),
       fetchAll('tem_activity_daily', 'brand_id,activity_id,activity_name,report_date,exposure_uv,claim_uv,redeem_uv,store_redeem_rate_uv,exposure_pv,claim_pv,redeem_pv'),
       fetchAll('tem_pinned_notes', '*'),
     ]);
@@ -391,7 +391,7 @@ function computeBrandEffect(bid) {
   if (pinDt) pinDt.setHours(0,0,0,0);
   const pinPeriodDays = pinDt ? Math.max(1, Math.round((today - pinDt) / 86400000)) : 0;
 
-  // 从 brandDailyAll 取该品牌全部日报数据（全部PV口径，高低频/到店率UV口径）
+  // 从 brandDailyAll 取该品牌全部日报数据
   const brandRows = pinData.brandDailyAll.filter(b => String(b.brand_id) === bid);
   const dailyMap = {};
   for (const b of brandRows) {
@@ -401,9 +401,10 @@ function computeBrandEffect(bid) {
       exposure: parseFloat(b.daily_exposure_pv) || 0,
       claim: parseFloat(b.daily_claim_pv) || 0,
       redeem: parseFloat(b.daily_redeem_pv) || 0,
-      store_rate: parseFloat(b.w7_store_redeem_rate_uv) || null,
-      high_freq: parseFloat(b.w7_high_freq_rate_uv) || null,
-      low_freq: parseFloat(b.w7_low_freq_rate_uv) || null,
+      exp_redeem_rate: parseRate(b.daily_exposure_redeem_rate),
+      store_rate: parseRate(b.w7_store_redeem_rate_uv),
+      high_freq: parseRate(b.w7_high_freq_rate_uv),
+      low_freq: parseRate(b.w7_low_freq_rate_uv),
     };
   }
 
@@ -413,28 +414,29 @@ function computeBrandEffect(bid) {
     exposure: dailyMap[d].exposure,
     claim: dailyMap[d].claim,
     redeem: dailyMap[d].redeem,
+    exp_redeem_rate: dailyMap[d].exp_redeem_rate,
     store_rate: dailyMap[d].store_rate,
     high_freq: dailyMap[d].high_freq,
     low_freq: dailyMap[d].low_freq,
   }));
 
-  // 置顶周期累计
+  // 置顶周期累计 & 日均
   let total_exposure = 0, total_claim = 0, total_redeem = 0;
-  const weightedStore = {sum:0, den:0};
+  let sum_exp_redeem_rate = 0, cnt_exp_redeem_rate = 0;
+  let sum_store_rate = 0, cnt_store_rate = 0;
   let alive_days = 0, data_days = 0;
   for (const row of daily_series) {
     if (pinDt && new Date(row.date) < pinDt) continue;
     total_exposure += row.exposure;
     total_claim += row.claim;
     total_redeem += row.redeem;
-    if (row.store_rate != null && !isNaN(row.store_rate) && row.store_rate > 0 && row.redeem > 0) {
-      weightedStore.sum += row.store_rate * row.redeem;
-      weightedStore.den += row.redeem;
-    }
+    if (row.exp_redeem_rate != null) { sum_exp_redeem_rate += row.exp_redeem_rate; cnt_exp_redeem_rate++; }
+    if (row.store_rate != null) { sum_store_rate += row.store_rate; cnt_store_rate++; }
     data_days++;
     if (row.exposure > 0 || row.redeem > 0) alive_days++;
   }
-  const store_redeem_rate = weightedStore.den > 0 ? weightedStore.sum / weightedStore.den : null;
+  const avg_exp_redeem_rate = cnt_exp_redeem_rate > 0 ? sum_exp_redeem_rate / cnt_exp_redeem_rate : null;
+  const avg_store_rate = cnt_store_rate > 0 ? sum_store_rate / cnt_store_rate : null;
 
   // 置顶前后均值对比（曝光）
   const before = [], after = [];
@@ -481,10 +483,8 @@ function computeBrandEffect(bid) {
     daily_avg_exposure: data_days > 0 ? total_exposure / data_days : 0,
     daily_avg_claim: data_days > 0 ? total_claim / data_days : 0,
     daily_avg_redeem: data_days > 0 ? total_redeem / data_days : 0,
-    exposure_claim_rate: total_exposure > 0 ? total_claim / total_exposure : 0,
-    claim_redeem_rate: total_claim > 0 ? total_redeem / total_claim : 0,
-    exposure_redeem_rate: total_exposure > 0 ? total_redeem / total_exposure : 0,
-    store_redeem_rate,
+    exposure_redeem_rate: avg_exp_redeem_rate,
+    store_redeem_rate: avg_store_rate,
     w7_avg_txn_count: bd.w7_avg_txn_count || '-',
     avg_before: avgBefore, avg_after: avgAfter,
     exposure_change: exposureChange,
@@ -801,14 +801,19 @@ function renderBigChartSVG(series, pinDate, isRate) {
     path += (path ? 'L' : 'M') + x.toFixed(1) + ',' + y.toFixed(1) + ' ';
   });
 
-  // 置顶日竖线
+  // 置顶日竖线（日期可能不在序列里，找最近位置）
   let pinLine = '';
   if (pinDate) {
-    const idx = series.findIndex(p => p.date === pinDate);
+    let idx = series.findIndex(p => p.date === pinDate);
+    if (idx < 0) {
+      // 找第一个 >= pinDate 的位置
+      idx = series.findIndex(p => p.date >= pinDate);
+      if (idx < 0) idx = series.length - 1;
+    }
     if (idx >= 0) {
       const x = P + idx * xStep;
       pinLine = `<line x1="${x}" y1="${P}" x2="${x}" y2="${H-P}" stroke="#DC2626" stroke-width="2" stroke-dasharray="4,3"/>
-                 <text x="${x+4}" y="${P+14}" font-size="11" fill="#DC2626" font-weight="600">置顶日 ${pinDate.slice(5)}</text>`;
+                 <text x="${x+4}" y="${P+14}" font-size="11" fill="#DC2626" font-weight="600">置顶 ${pinDate.slice(5)}</text>`;
     }
   }
 
@@ -851,6 +856,18 @@ function renderBigChartSVG(series, pinDate, isRate) {
 // ============================================================
 // 格式化
 // ============================================================
+// 解析率值：'68.92%' → 0.6892, '0.0433' → 0.0433, '' → null
+function parseRate(v) {
+  if (v == null || v === '' || v === 'None' || v === 'NULL' || v === '<NA>') return null;
+  const s = String(v).trim();
+  if (s.endsWith('%')) {
+    const n = parseFloat(s);
+    return isNaN(n) ? null : n / 100;
+  }
+  const n = parseFloat(s);
+  return isNaN(n) ? null : n;
+}
+
 function fmtPinNum(v) {
   if (v == null || isNaN(v)) return '-';
   if (v >= 10000) return (v / 10000).toFixed(1) + 'w';
