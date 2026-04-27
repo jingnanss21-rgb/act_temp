@@ -53,7 +53,7 @@ async function loadPinAnalysis() {
     const [pinnedOps, waistQual, brandDaily, actDaily, notes] = await Promise.all([
       fetchAll('tem_pinned_ops', '*'),
       fetchAll('tem_waist_qualified', '*'),
-      fetchAll('tem_brand_daily', 'brand_id,brand_name,category_l4,w7_avg_txn_count,is_online_today,is_alive_w7,report_date,daily_exposure_pv,daily_claim_pv,daily_redeem_pv,w7_high_freq_rate_uv,w7_low_freq_rate_uv', 'report_date.desc'),
+      fetchAll('tem_brand_daily', 'brand_id,brand_name,category_l4,w7_avg_txn_count,is_online_today,is_alive_w7,report_date,daily_exposure_pv,daily_claim_pv,daily_redeem_pv,w7_high_freq_rate_uv,w7_low_freq_rate_uv,w7_store_redeem_rate_uv', 'report_date.desc'),
       fetchAll('tem_activity_daily', 'brand_id,activity_id,activity_name,report_date,exposure_uv,claim_uv,redeem_uv,store_redeem_rate_uv,exposure_pv,claim_pv,redeem_pv'),
       fetchAll('tem_pinned_notes', '*'),
     ]);
@@ -364,9 +364,9 @@ function computeBrandEffect(bid) {
   if (pinDt) pinDt.setHours(0,0,0,0);
   const pinPeriodDays = pinDt ? Math.max(1, Math.round((today - pinDt) / 86400000)) : 0;
 
-  // 从 brandDailyAll 取该品牌全部日报数据
+  // 从 brandDailyAll 取该品牌全部日报数据（全部PV口径，高低频/到店率UV口径）
   const brandRows = pinData.brandDailyAll.filter(b => String(b.brand_id) === bid);
-  const dailyMap = {}; // date → {exposure, claim, redeem, high_freq, low_freq}
+  const dailyMap = {};
   for (const b of brandRows) {
     const d = b.report_date;
     if (!d) continue;
@@ -374,18 +374,10 @@ function computeBrandEffect(bid) {
       exposure: parseFloat(b.daily_exposure_pv) || 0,
       claim: parseFloat(b.daily_claim_pv) || 0,
       redeem: parseFloat(b.daily_redeem_pv) || 0,
+      store_rate: parseFloat(b.w7_store_redeem_rate_uv) || null,
       high_freq: parseFloat(b.w7_high_freq_rate_uv) || null,
       low_freq: parseFloat(b.w7_low_freq_rate_uv) || null,
     };
-  }
-
-  // 补充活动日表的 store_rate（品牌日报没有这个）
-  const acts = pinData.activityDaily[bid] || [];
-  const storeRateMap = {};
-  for (const a of acts) {
-    const d = a.report_date;
-    if (!d || storeRateMap[d]) continue;
-    if (a.store_redeem_rate_uv) storeRateMap[d] = parseFloat(a.store_redeem_rate_uv);
   }
 
   const dates = Object.keys(dailyMap).sort();
@@ -394,7 +386,7 @@ function computeBrandEffect(bid) {
     exposure: dailyMap[d].exposure,
     claim: dailyMap[d].claim,
     redeem: dailyMap[d].redeem,
-    store_rate: storeRateMap[d] || null,
+    store_rate: dailyMap[d].store_rate,
     high_freq: dailyMap[d].high_freq,
     low_freq: dailyMap[d].low_freq,
   }));
