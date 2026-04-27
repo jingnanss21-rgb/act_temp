@@ -284,8 +284,8 @@ function renderPinAnalysis() {
       <div class="pin-section" style="margin-top:24px">
         <h3 class="pin-section-title">📌 品牌流量分析</h3>
         <div class="pin-formula-note">
-          <b>分组逻辑</b>：周期<7天→观察期 · 流量变化≥+5%为上涨/<-5%为下降 · 转化率变化<-5%为下降 · 单渠道≥70%为集中<br>
-          <span style="color:#94A3B8">流量 = 置顶前后日均曝光PV均值变化 · 转化 = 置顶前后曝光核销率均值变化 · 存活 = 品牌日报近7日存活(is_alive_w7)</span>
+          <b>分组逻辑</b>：周期<7天→观察期 · 流量变化≥+5%为上涨/<-5%为下降 · 转化变化<-5%为下降 · 渠道≥70%标集中<br>
+          <span style="color:#94A3B8">流量 = 置顶前后日均曝光PV均值变化 · 转化 = 置顶前后领取率(领取PV/曝光PV)均值变化 · 渠道集中=附加标签</span>
         </div>
 
         <div class="pin-effect-tabs">
@@ -343,7 +343,7 @@ function classifyBrandDT(info) {
   const convDown = info.conversion_change != null && info.conversion_change < DT_THRESHOLDS.CONV_DOWN;
 
   if (flowUp) return convDown ? 'flow_up_conv_down' : 'flow_up_conv_ok';
-  if (flowDown) return info.channel_concentrated ? 'flow_down_channel_risk' : 'flow_down_general';
+  if (flowDown) return convDown ? 'flow_down_conv_down' : 'flow_down_conv_ok';
   // 平稳
   return convDown ? 'flow_flat_conv_down' : 'flow_flat_ok';
 }
@@ -354,8 +354,8 @@ const DT_GROUP_DEFS = [
   { key: 'flow_up_conv_down',     label: '🟡 流量↑ 转化↓',           color: '#EAB308' },
   { key: 'flow_flat_ok',          label: '⚪ 流量平稳 · 转化正常',    color: '#64748B' },
   { key: 'flow_flat_conv_down',   label: '🟠 流量平稳 · 转化↓',      color: '#EA580C' },
-  { key: 'flow_down_channel_risk',label: '🔴 流量↓ 渠道集中',        color: '#DC2626' },
-  { key: 'flow_down_general',     label: '🔴 流量↓ 综合下降',        color: '#DC2626' },
+  { key: 'flow_down_conv_ok',     label: '🔴 流量↓ 转化正常',        color: '#DC2626' },
+  { key: 'flow_down_conv_down',   label: '🔴 流量↓ 转化↓',           color: '#DC2626' },
   { key: 'no_baseline',           label: '⚪ 无基线数据',             color: '#94A3B8' },
 ];
 
@@ -365,8 +365,8 @@ const ADVICE_MAP = {
   flow_up_conv_down:     { alive: '转化恶化，检查券面额和活动质量',      dead: '流量虚高不转化，排查无效曝光和渠道质量' },
   flow_flat_ok:          { alive: '置顶效果有限，考虑调整入口或活动',    dead: '置顶未起效且不存活，建议替换' },
   flow_flat_conv_down:   { alive: '转化恶化，紧急排查活动质量',         dead: '双降信号，优先替换' },
-  flow_down_channel_risk:{ alive: '依赖单渠道且下降，需扩展渠道来源',    dead: '高风险：渠道+存活双问题，立即替换' },
-  flow_down_general:     { alive: '置顶无效，排查竞品/市场因素后考虑替换',dead: '流量和存活均下降，建议立即替换' },
+  flow_down_conv_ok:     { alive: '流量下降但转化OK，排查曝光渠道变化',  dead: '曝光不足导致不存活，需增加曝光渠道' },
+  flow_down_conv_down:   { alive: '流量和转化双降，排查竞品/市场因素后考虑替换', dead: '双降，建议立即替换' },
   no_baseline:           { alive: '缺少置顶前数据，关注后续趋势',       dead: '缺少基线，需人工核查品牌上线时间' },
 };
 
@@ -421,8 +421,8 @@ function renderEffectGrid() {
 
   // 不存活Tab：红色组优先；存活Tab：绿色组优先
   const orderedKeys = isAliveTab
-    ? ['flow_up_conv_ok','flow_up_conv_down','flow_flat_ok','flow_flat_conv_down','flow_down_general','flow_down_channel_risk','observation','no_baseline']
-    : ['flow_down_channel_risk','flow_down_general','flow_flat_conv_down','flow_flat_ok','flow_up_conv_down','flow_up_conv_ok','observation','no_baseline'];
+    ? ['flow_up_conv_ok','flow_up_conv_down','flow_flat_ok','flow_flat_conv_down','flow_down_conv_ok','flow_down_conv_down','observation','no_baseline']
+    : ['flow_down_conv_down','flow_down_conv_ok','flow_flat_conv_down','flow_flat_ok','flow_up_conv_down','flow_up_conv_ok','observation','no_baseline'];
 
   // 分桶
   const groupMap = {};
@@ -566,13 +566,14 @@ function computeBrandEffect(bid) {
   const avgAfter = after.length > 0 ? after.reduce((s,v)=>s+v,0) / after.length : 0;
   const exposureChange = avgBefore > 0 ? (avgAfter - avgBefore) / avgBefore : (avgAfter > 0 ? 1 : 0);
 
-  // 转化率变化（置顶前后曝光核销率均值对比）
+  // 转化率变化（置顶前后领取率 = claim/exposure 对比，同为万单位可比）
   const convBefore = [], convAfter = [];
   for (const row of daily_series) {
     if (!pinDt) continue;
-    if (row.exp_redeem_rate == null) continue;
-    if (new Date(row.date) < pinDt) convBefore.push(row.exp_redeem_rate);
-    else convAfter.push(row.exp_redeem_rate);
+    if (row.exposure <= 0) continue;
+    const claimRate = row.claim / row.exposure;
+    if (new Date(row.date) < pinDt) convBefore.push(claimRate);
+    else convAfter.push(claimRate);
   }
   const convAvgBefore = convBefore.length > 0 ? convBefore.reduce((s,v)=>s+v,0) / convBefore.length : 0;
   const convAvgAfter = convAfter.length > 0 ? convAfter.reduce((s,v)=>s+v,0) / convAfter.length : 0;
@@ -686,6 +687,7 @@ function openPinModal(bid) {
         <span>📈 品牌趋势（最近30天）</span>
         <select id="pin-chart-metric" onchange="updatePinChart()">
           <option value="exposure">曝光PV</option>
+          <option value="claim_rate">领取率(转化)</option>
           <option value="redeem">核销PV</option>
           <option value="claim">领取PV</option>
           <option value="store_rate">到店核销率</option>
@@ -730,11 +732,18 @@ function updatePinChart() {
   if (!pinCurrentModalBrand) return;
   const info = computeBrandEffect(pinCurrentModalBrand);
   const metric = document.getElementById('pin-chart-metric').value;
-  const isRate = ['store_rate', 'high_freq', 'low_freq'].includes(metric);
-  const series = info.daily_series.map(r => ({
-    date: r.date,
-    value: isRate ? (r[metric] != null ? parseFloat(r[metric]) : null) : (r[metric] || 0)
-  }));
+  const isRate = ['store_rate', 'high_freq', 'low_freq', 'claim_rate'].includes(metric);
+  const series = info.daily_series.map(r => {
+    let value;
+    if (metric === 'claim_rate') {
+      value = r.exposure > 0 ? r.claim / r.exposure : null;
+    } else if (isRate) {
+      value = r[metric] != null ? parseFloat(r[metric]) : null;
+    } else {
+      value = r[metric] || 0;
+    }
+    return { date: r.date, value };
+  });
   document.getElementById('pin-chart-svg').innerHTML = renderBigChartSVG(series, info.pin_date, isRate);
 }
 
