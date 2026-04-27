@@ -275,17 +275,21 @@ function renderPinAnalysis() {
       <!-- 第二部分：品牌流量分析 -->
       <div class="pin-section" style="margin-top:24px">
         <h3 class="pin-section-title">📌 品牌流量分析</h3>
-
-        <div class="pin-effect-tabs">
-          <button class="pin-effect-tab ${pinData.effectTab === 'alive' ? 'active' : ''}" onclick="switchPinEffectTab('alive')">
-            ✅ 存活 <span id="pin-count-alive"></span>
-          </button>
-          <button class="pin-effect-tab ${pinData.effectTab === 'dead' ? 'active' : ''}" onclick="switchPinEffectTab('dead')">
-            ❌ 不存活 <span id="pin-count-dead"></span>
-          </button>
+        <div class="pin-formula-note">
+          流量涨幅 = (置顶后日均曝光PV - 置顶前日均曝光PV) / 置顶前日均曝光PV × 100%<br>
+          <span style="color:#94A3B8">前段 = 置顶日之前所有可用天数均值 · 后段 = 置顶日之后所有可用天数均值 · 存活 = 品牌日报近7日存活(is_alive_w7)</span>
         </div>
 
-        <div id="pin-cards-grid" class="pin-cards-grid"></div>
+        <div class="pin-dual-grid">
+          <div class="pin-dual-col">
+            <div class="pin-dual-header pin-dual-alive">✅ 存活 <span id="pin-count-alive"></span></div>
+            <div id="pin-cards-alive" class="pin-cards-grid"></div>
+          </div>
+          <div class="pin-dual-col">
+            <div class="pin-dual-header pin-dual-dead">❌ 不存活 <span id="pin-count-dead"></span></div>
+            <div id="pin-cards-dead" class="pin-cards-grid"></div>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -315,8 +319,9 @@ function switchSurvivalPeriod(period) {
 // 渲染置顶效果卡片网格
 // ============================================================
 function renderEffectGrid() {
-  const grid = document.getElementById('pin-cards-grid');
-  if (!grid) return;
+  const gridAlive = document.getElementById('pin-cards-alive');
+  const gridDead = document.getElementById('pin-cards-dead');
+  if (!gridAlive || !gridDead) return;
 
   const pinnedBids = pinData.pinnedOps.map(p => String(p.brand_id));
 
@@ -331,43 +336,40 @@ function renderEffectGrid() {
   // 更新计数
   const elAlive = document.getElementById('pin-count-alive');
   const elDead = document.getElementById('pin-count-dead');
-  if (elAlive) elAlive.textContent = alive.length;
-  if (elDead) elDead.textContent = dead.length;
+  if (elAlive) elAlive.textContent = `(${alive.length})`;
+  if (elDead) elDead.textContent = `(${dead.length})`;
 
-  const list = pinData.effectTab === 'alive' ? alive : dead;
-  // 排序：存活在前已由 tab 保证，组内按流量涨幅降序
-  list.sort((a, b) => (b.exposure_change || 0) - (a.exposure_change || 0));
+  // 排序：流量涨幅降序
+  alive.sort((a, b) => (b.exposure_change || 0) - (a.exposure_change || 0));
+  dead.sort((a, b) => (b.exposure_change || 0) - (a.exposure_change || 0));
 
-  if (list.length === 0) {
-    grid.innerHTML = '<div class="pin-empty">暂无品牌</div>';
-    return;
+  function renderCards(list) {
+    if (list.length === 0) return '<div class="pin-empty">暂无品牌</div>';
+    return list.map(info => {
+      const changePct = info.exposure_change != null ? (info.exposure_change * 100).toFixed(1) : null;
+      const changeColor = changePct == null ? '#94A3B8' : (changePct >= 20 ? '#16A34A' : (changePct >= -20 ? '#D97706' : '#DC2626'));
+      const changeLabel = changePct == null ? '无基线' : `${changePct >= 0 ? '+' : ''}${changePct}%`;
+      return `<div class="pin-card" onclick="openPinModal('${info.brand_id}')">
+        <div class="pin-card-head">
+          <div class="pin-card-brand">${info.brand_name || info.brand_id}</div>
+          <div class="pin-card-meta">周期${info.pin_period_days}天</div>
+        </div>
+        <div class="pin-card-metrics">
+          <div class="pin-card-metric"><span>日均曝光</span><b>${fmtPinNum(info.daily_avg_exposure)}</b></div>
+          <div class="pin-card-metric"><span>日均核销</span><b>${fmtPinNum(info.daily_avg_redeem)}</b></div>
+        </div>
+        <div class="pin-card-chart">${renderMiniExposureSVG(info.daily_series)}</div>
+        <div class="pin-card-diag" style="color:${changeColor}">流量 ${changeLabel}</div>
+      </div>`;
+    }).join('');
   }
 
-  grid.innerHTML = list.map(info => {
-    const changePct = info.exposure_change != null ? (info.exposure_change * 100).toFixed(1) : null;
-    const changeColor = changePct == null ? '#94A3B8' : (changePct >= 20 ? '#16A34A' : (changePct >= -20 ? '#D97706' : '#DC2626'));
-    const changeLabel = changePct == null ? '无基线' : `${changePct >= 0 ? '+' : ''}${changePct}%`;
-    return `<div class="pin-card" onclick="openPinModal('${info.brand_id}')">
-      <div class="pin-card-head">
-        <div class="pin-card-brand">${info.brand_name || info.brand_id}</div>
-        <div class="pin-card-meta">周期${info.pin_period_days}天</div>
-      </div>
-      <div class="pin-card-metrics">
-        <div class="pin-card-metric"><span>日均曝光</span><b>${fmtPinNum(info.daily_avg_exposure)}</b></div>
-        <div class="pin-card-metric"><span>日均核销</span><b>${fmtPinNum(info.daily_avg_redeem)}</b></div>
-      </div>
-      <div class="pin-card-chart">${renderMiniExposureSVG(info.daily_series)}</div>
-      <div class="pin-card-diag" style="color:${changeColor}">流量 ${changeLabel}</div>
-    </div>`;
-  }).join('');
+  gridAlive.innerHTML = renderCards(alive);
+  gridDead.innerHTML = renderCards(dead);
 }
 
 function switchPinEffectTab(tab) {
-  pinData.effectTab = tab;
-  document.querySelectorAll('.pin-effect-tab').forEach(b => {
-    b.classList.toggle('active', b.getAttribute('onclick').includes(`'${tab}'`));
-  });
-  renderEffectGrid();
+  // no longer needed but keep for compatibility
 }
 
 // ============================================================
@@ -779,10 +781,12 @@ function renderSurvivalSVG(pinnedSeries, qualifiedSeries, waistSeries) {
     ${xLabels.join('')}
     <!-- crosshair elements -->
     <line id="${svgId}-vline" x1="0" y1="${TOP}" x2="0" y2="${H-P}" stroke="#64748B" stroke-width="1" stroke-dasharray="2,2" display="none"/>
-    <line id="${svgId}-hline" x1="${P}" y1="0" x2="${W-P}" y2="0" stroke="#64748B" stroke-width="1" stroke-dasharray="2,2" display="none"/>
     <text id="${svgId}-xlabel" x="0" y="${H-P+14}" text-anchor="middle" font-size="10" fill="#1E293B" font-weight="600" display="none"></text>
-    <text id="${svgId}-ylabel" x="${P-4}" y="0" text-anchor="end" font-size="10" fill="#1E293B" font-weight="600" display="none"></text>
-    <circle id="${svgId}-dot" cx="0" cy="0" r="5" fill="none" stroke="#1E293B" stroke-width="2" display="none"/>
+    <g id="${svgId}-dots" display="none"></g>
+    <g id="${svgId}-tooltip" display="none">
+      <rect id="${svgId}-tipbg" rx="4" ry="4" fill="white" stroke="#E2E8F0" stroke-width="1"/>
+      <text id="${svgId}-tiptext" font-size="11" fill="#1E293B"></text>
+    </g>
     <!-- invisible overlay for mouse -->
     <rect x="${P}" y="${TOP}" width="${W-P*2}" height="${H-P-TOP}" fill="transparent"
       onmousemove="pinSurvivalCrosshair(event,'${svgId}')"
@@ -794,14 +798,12 @@ function renderSurvivalSVG(pinnedSeries, qualifiedSeries, waistSeries) {
 function pinSurvivalCrosshair(event, svgId) {
   const svg = document.getElementById(svgId);
   if (!svg) return;
-  // Parse points from data attribute (cached after first parse)
   if (!svg._pts) {
     try { svg._pts = JSON.parse(svg.getAttribute('data-pts')); } catch(e) { return; }
   }
   const pts = svg._pts;
   if (!pts || pts.length === 0) return;
 
-  // Get mouse position in SVG coordinates using CTM
   const point = svg.createSVGPoint();
   point.x = event.clientX;
   point.y = event.clientY;
@@ -810,37 +812,64 @@ function pinSurvivalCrosshair(event, svgId) {
   const svgPoint = point.matrixTransform(ctm.inverse());
   const mouseX = svgPoint.x;
 
-  // Find nearest point by x
-  let nearest = pts[0], minDist = Math.abs(pts[0].x - mouseX);
+  // Find nearest date (by x position)
+  let nearestDate = pts[0].date, nearestX = pts[0].x, minDist = Math.abs(pts[0].x - mouseX);
   for (const p of pts) {
     const dist = Math.abs(p.x - mouseX);
-    if (dist < minDist) { minDist = dist; nearest = p; }
+    if (dist < minDist) { minDist = dist; nearestDate = p.date; nearestX = p.x; }
   }
 
-  // Update crosshair elements
-  const vline = document.getElementById(svgId + '-vline');
-  const hline = document.getElementById(svgId + '-hline');
-  const xlabel = document.getElementById(svgId + '-xlabel');
-  const ylabel = document.getElementById(svgId + '-ylabel');
-  const dot = document.getElementById(svgId + '-dot');
+  // Get all points at this date
+  const datePts = pts.filter(p => p.date === nearestDate);
 
-  vline.setAttribute('x1', nearest.x); vline.setAttribute('x2', nearest.x);
+  // Vertical line
+  const vline = document.getElementById(svgId + '-vline');
+  vline.setAttribute('x1', nearestX); vline.setAttribute('x2', nearestX);
   vline.setAttribute('display', '');
-  hline.setAttribute('y1', nearest.y); hline.setAttribute('y2', nearest.y);
-  hline.setAttribute('display', '');
-  xlabel.setAttribute('x', nearest.x);
-  xlabel.textContent = nearest.date.slice(5);
+
+  // X label
+  const xlabel = document.getElementById(svgId + '-xlabel');
+  xlabel.setAttribute('x', nearestX);
+  xlabel.textContent = nearestDate.slice(5);
   xlabel.setAttribute('display', '');
-  ylabel.setAttribute('y', nearest.y + 4);
-  ylabel.textContent = (nearest.rate * 100).toFixed(1) + '%';
-  ylabel.setAttribute('display', '');
-  dot.setAttribute('cx', nearest.x); dot.setAttribute('cy', nearest.y);
-  dot.setAttribute('stroke', nearest.color);
-  dot.setAttribute('display', '');
+
+  // Highlight dots for all lines at this date
+  const dotsG = document.getElementById(svgId + '-dots');
+  dotsG.innerHTML = datePts.map(p =>
+    `<circle cx="${p.x}" cy="${p.y}" r="5" fill="none" stroke="${p.color}" stroke-width="2"/>`
+  ).join('');
+  dotsG.setAttribute('display', '');
+
+  // Tooltip with all lines' values
+  const tooltip = document.getElementById(svgId + '-tooltip');
+  const tiptext = document.getElementById(svgId + '-tiptext');
+  const tipbg = document.getElementById(svgId + '-tipbg');
+
+  // Build tspans
+  const lineH = 15;
+  const lines = datePts.map((p, i) =>
+    `<tspan x="0" dy="${i === 0 ? 0 : lineH}" fill="${p.color}">${p.label}: ${(p.rate*100).toFixed(1)}% (${p.alive}/${p.total})</tspan>`
+  );
+  tiptext.innerHTML = lines.join('');
+
+  // Position tooltip to the right of the line, or left if near edge
+  const tipW = 180, tipH = datePts.length * lineH + 10;
+  let tipX = nearestX + 12;
+  if (tipX + tipW > 700) tipX = nearestX - tipW - 12;
+  const tipY = Math.min(datePts[0].y, 100);
+
+  tooltip.setAttribute('transform', `translate(${tipX},${tipY})`);
+  tipbg.setAttribute('width', tipW);
+  tipbg.setAttribute('height', tipH);
+  tipbg.setAttribute('x', -5);
+  tipbg.setAttribute('y', -12);
+  tiptext.setAttribute('x', 0);
+  tiptext.setAttribute('y', 0);
+  tooltip.setAttribute('display', '');
 }
 
 function pinSurvivalCrosshairHide(svgId) {
-  ['vline','hline','xlabel','ylabel','dot'].forEach(suffix => {
+  ['vline','xlabel','dots','tooltip'].forEach(suffix => {
     const el = document.getElementById(svgId + '-' + suffix);
     if (el) el.setAttribute('display', 'none');
   });
