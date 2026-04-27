@@ -12,14 +12,14 @@ let pinData = {
   pinnedOps: [],          // [{brand_id, pin_date, ...}]
   waistQualified: {},     // brand_id → {is_qualified, is_alive, brand_name, category, ...}
   brandDaily: {},         // brand_id → latest brand_daily record
+  brandDailyAll: [],      // all brand_daily rows (for survival trend)
   activityDaily: {},      // brand_id → [{report_date, exposure_uv, claim_uv, redeem_uv, store_redeem_rate_uv}...]
   notes: {},              // brand_id → note
-  survivalTrend: [],      // [{date, alive, total, rate}]
+  survivalTrend: { pinned: [], waist: [] },
   classified: {
     qualified_pinned: [],
     qualified_unpinned: [],
     unqualified_pinned: [],
-    need_offline: [],
   },
   effectTab: 'effective',  // 'effective' | 'ineffective'
 };
@@ -66,7 +66,8 @@ async function loadPinAnalysis() {
       pinData.waistQualified[String(w.brand_id)] = w;
     }
 
-    // brandDaily: 同一 brand_id 取最新一条
+    // brandDaily: 保留全量用于趋势，同时建 brand_id → latest 索引
+    pinData.brandDailyAll = brandDaily;
     pinData.brandDaily = {};
     for (const b of brandDaily) {
       const bid = String(b.brand_id);
@@ -109,7 +110,6 @@ function classifyBrands() {
     qualified_pinned: [],
     qualified_unpinned: [],
     unqualified_pinned: [],
-    need_offline: [],
   };
 
   // 遍历腰部达标表
@@ -125,44 +125,55 @@ function classifyBrands() {
       pinData.classified.unqualified_pinned.push(bid);
     }
   }
-
-  // 需下线: 在置顶表但不在腰部表
-  for (const bid of pinnedSet) {
-    if (!waistSet.has(bid)) {
-      pinData.classified.need_offline.push(bid);
-    }
-  }
 }
 
 // ============================================================
-// 总体存活率趋势
+// 总体存活率趋势（置顶组 vs 腰部组，用 brand_daily.is_online_today）
 // ============================================================
 function computeSurvivalTrend() {
-  // 对每个置顶品牌，基于活动日表该品牌每天是否有活动（exposure_uv>0）判断当日是否"存活"
-  // 聚合计算各日期的 存活品牌数 / 置顶品牌总数
-  const pinnedIds = pinData.pinnedOps.map(p => String(p.brand_id));
-  const dateMap = {}; // date → Set of alive brand_ids
+  const pinnedIds = new Set(pinData.pinnedOps.map(p => String(p.brand_id)));
+  const waistIds = new Set(Object.keys(pinData.waistQualified));
 
-  for (const bid of pinnedIds) {
-    const acts = pinData.activityDaily[bid] || [];
-    for (const a of acts) {
-      const d = a.report_date;
-      if (!d) continue;
-      if ((a.exposure_uv || 0) > 0 || (a.redeem_uv || 0) > 0) {
-        if (!dateMap[d]) dateMap[d] = new Set();
-        dateMap[d].add(bid);
-      }
+  // date → { pinned_online: Set, pinned_total: Set, waist_online: Set, waist_total: Set }
+  const dateMap = {};
+
+  for (const b of pinData.brandDailyAll) {
+    const bid = String(b.brand_id);
+    const d = b.report_date;
+    if (!d) continue;
+    const inPinned = pinnedIds.has(bid);
+    const inWaist = waistIds.has(bid);
+    if (!inPinned && !inWaist) continue;
+
+    if (!dateMap[d]) dateMap[d] = {
+      pinned_online: new Set(), pinned_total: new Set(),
+      waist_online: new Set(), waist_total: new Set(),
+    };
+
+    if (inPinned) {
+      dateMap[d].pinned_total.add(bid);
+      if (String(b.is_online_today) === '1') dateMap[d].pinned_online.add(bid);
+    }
+    if (inWaist) {
+      dateMap[d].waist_total.add(bid);
+      if (String(b.is_online_today) === '1') dateMap[d].waist_online.add(bid);
     }
   }
 
   const dates = Object.keys(dateMap).sort();
-  const total = pinnedIds.length || 1;
-  return dates.map(d => ({
+  const pinned = dates.map(d => ({
     date: d,
-    alive: dateMap[d].size,
-    total: total,
-    rate: dateMap[d].size / total,
+    alive: dateMap[d].pinned_online.size,
+    total: dateMap[d].pinned_total.size,
+    rate: dateMap[d].pinned_total.size > 0 ? dateMap[d].pinned_online.size / dateMap[d].pinned_total.size : 0,
   }));
+  const waist = dates.map(d => ({
+    date: d,
+    alive: dateMap[d].waist_online.size,
+    total: dateMap[d].waist_total.size,
+    rate: dateMap[d].waist_total.size > 0 ? dateMap[d].waist_online.size / dateMap[d].waist_total.size : 0,
+  }));
+  return { pinned, waist };
 }
 
 // ============================================================
@@ -175,15 +186,15 @@ function renderPinAnalysis() {
   const qpPct = qualifiedTotal > 0 ? ((c.qualified_pinned.length / qualifiedTotal) * 100).toFixed(1) : 0;
   const quPct = qualifiedTotal > 0 ? ((c.qualified_unpinned.length / qualifiedTotal) * 100).toFixed(1) : 0;
 
-  // 告警列表
-  const notOnline = c.qualified_pinned.concat(c.unqualified_pinned).filter(bid => {
+  // 告警列表：不在线 = 置顶品牌中今日 is_online_today != 1
+  const allPinnedBids = pinData.pinnedOps.map(p => String(p.brand_id));
+  const notOnline = allPinnedBids.filter(bid => {
     const b = pinData.brandDaily[bid];
-    return b && String(b.is_online_today) !== '1';
+    return !b || String(b.is_online_today) !== '1';
   });
   const notQualified = c.unqualified_pinned;
-  const needOffline = c.need_offline;
 
-  // 存活率趋势
+  // 存活率趋势（双线）
   const survival = computeSurvivalTrend();
   pinData.survivalTrend = survival;
 
@@ -211,34 +222,27 @@ function renderPinAnalysis() {
         <!-- 存活率趋势 -->
         <div class="pin-trend-card">
           <div class="pin-trend-header">
-            <span>置顶商户总体存活率趋势</span>
-            <span class="pin-trend-meta">共 ${pinData.pinnedOps.length} 个置顶商户</span>
+            <span>在线率趋势（置顶 vs 腰部）</span>
+            <span class="pin-trend-meta">置顶 ${pinData.pinnedOps.length} · 腰部 ${Object.keys(pinData.waistQualified).length}</span>
           </div>
-          <div class="pin-trend-svg">${renderSurvivalSVG(survival)}</div>
+          <div class="pin-trend-svg">${renderSurvivalSVG(survival.pinned, survival.waist)}</div>
         </div>
 
-        <!-- 三张告警卡片 -->
+        <!-- 两张告警卡片 -->
         <div class="pin-alerts">
           <div class="pin-alert-card pin-alert-red">
             <div class="pin-alert-header">
               <span class="pin-alert-icon">🔴</span>
-              <span>不在线商户 (${notOnline.length})</span>
+              <span>置顶不在线 · 需替换 (${notOnline.length})</span>
             </div>
             <div class="pin-alert-body">${renderBrandListMini(notOnline)}</div>
           </div>
           <div class="pin-alert-card pin-alert-yellow">
             <div class="pin-alert-header">
               <span class="pin-alert-icon">🟡</span>
-              <span>不达标商户 (${notQualified.length})</span>
+              <span>置顶不达标 · 需排查要素 (${notQualified.length})</span>
             </div>
             <div class="pin-alert-body">${renderBrandListMini(notQualified)}</div>
-          </div>
-          <div class="pin-alert-card pin-alert-orange">
-            <div class="pin-alert-header">
-              <span class="pin-alert-icon">⚠️</span>
-              <span>需下线置顶 (${needOffline.length})</span>
-            </div>
-            <div class="pin-alert-body">${renderBrandListMini(needOffline)}</div>
           </div>
         </div>
       </div>
@@ -631,42 +635,87 @@ function renderBrandListMini(bids) {
   }).join('') + (bids.length > 20 ? `<div class="pin-alert-more">+${bids.length-20}</div>` : '');
 }
 
-function renderSurvivalSVG(series) {
-  if (series.length === 0) return '<div style="text-align:center;color:#94A3B8;padding:20px">暂无数据</div>';
-  const W = 720, H = 120, P = 36;
+function renderSurvivalSVG(pinnedSeries, waistSeries) {
+  if ((!pinnedSeries || pinnedSeries.length === 0) && (!waistSeries || waistSeries.length === 0)) {
+    return '<div style="text-align:center;color:#94A3B8;padding:20px">暂无数据</div>';
+  }
+  const W = 720, H = 160, P = 36, TOP = 28;
   const maxRate = 1;
-  const xStep = (W - P*2) / Math.max(series.length - 1, 1);
-  let path = '';
-  series.forEach((p, i) => {
-    const x = P + i * xStep;
-    const y = H - P - (p.rate / maxRate) * (H - P*2);
-    path += (i === 0 ? 'M' : 'L') + x.toFixed(1) + ',' + y.toFixed(1) + ' ';
-  });
+
+  // 合并日期轴
+  const dateSet = new Set();
+  (pinnedSeries || []).forEach(p => dateSet.add(p.date));
+  (waistSeries || []).forEach(p => dateSet.add(p.date));
+  const dates = [...dateSet].sort();
+  const xStep = (W - P*2) / Math.max(dates.length - 1, 1);
+
+  // 按日期索引
+  const pinnedMap = {};
+  (pinnedSeries || []).forEach(p => pinnedMap[p.date] = p);
+  const waistMap = {};
+  (waistSeries || []).forEach(p => waistMap[p.date] = p);
+
+  // 画线函数
+  function makePath(map, dates) {
+    let path = '';
+    dates.forEach((d, i) => {
+      const p = map[d];
+      if (!p) return;
+      const x = P + i * xStep;
+      const y = H - P - (p.rate / maxRate) * (H - P - TOP);
+      path += (path ? 'L' : 'M') + x.toFixed(1) + ',' + y.toFixed(1) + ' ';
+    });
+    return path;
+  }
+
+  const pinnedPath = makePath(pinnedMap, dates);
+  const waistPath = makePath(waistMap, dates);
+
   // Y轴grid
   const grids = [0.25, 0.5, 0.75, 1.0].map(r => {
-    const y = H - P - r * (H - P*2);
+    const y = H - P - r * (H - P - TOP);
     return `<line x1="${P}" y1="${y}" x2="${W-P}" y2="${y}" stroke="#E2E8F0" stroke-dasharray="3,3"/>
             <text x="${P-6}" y="${y+4}" text-anchor="end" font-size="10" fill="#94A3B8">${(r*100).toFixed(0)}%</text>`;
   }).join('');
-  // X轴日期（首末+中）
+
+  // X轴日期
   const xLabels = [];
-  if (series.length > 0) {
-    const pts = [0, Math.floor(series.length/2), series.length - 1];
+  if (dates.length > 0) {
+    const pts = [0, Math.floor(dates.length/2), dates.length - 1];
     pts.forEach(i => {
       const x = P + i * xStep;
-      xLabels.push(`<text x="${x}" y="${H-P+16}" text-anchor="middle" font-size="10" fill="#64748B">${series[i].date.slice(5)}</text>`);
+      xLabels.push(`<text x="${x}" y="${H-P+16}" text-anchor="middle" font-size="10" fill="#64748B">${dates[i].slice(5)}</text>`);
     });
   }
-  return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:${H}px">
-    ${grids}
-    <path d="${path}" fill="none" stroke="#2563EB" stroke-width="2"/>
-    ${series.map((p, i) => {
+
+  // 数据点 + tooltip
+  function makeDots(map, dates, color, label) {
+    return dates.map((d, i) => {
+      const p = map[d];
+      if (!p) return '';
       const x = P + i * xStep;
-      const y = H - P - (p.rate / maxRate) * (H - P*2);
-      return `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="3" fill="#2563EB">
-        <title>${p.date}: 存活${p.alive}/${p.total} (${(p.rate*100).toFixed(1)}%)</title>
+      const y = H - P - (p.rate / maxRate) * (H - P - TOP);
+      return `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="2.5" fill="${color}">
+        <title>${label} ${p.date}: ${p.alive}/${p.total} (${(p.rate*100).toFixed(1)}%)</title>
       </circle>`;
-    }).join('')}
+    }).join('');
+  }
+
+  // 图例
+  const legend = `
+    <rect x="${W-P-200}" y="4" width="12" height="3" rx="1" fill="#2563EB"/>
+    <text x="${W-P-184}" y="10" font-size="11" fill="#2563EB">置顶组</text>
+    <rect x="${W-P-120}" y="4" width="12" height="3" rx="1" fill="#16A34A"/>
+    <text x="${W-P-104}" y="10" font-size="11" fill="#16A34A">腰部组</text>
+  `;
+
+  return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:${H}px">
+    ${legend}
+    ${grids}
+    <path d="${pinnedPath}" fill="none" stroke="#2563EB" stroke-width="2"/>
+    <path d="${waistPath}" fill="none" stroke="#16A34A" stroke-width="2"/>
+    ${makeDots(pinnedMap, dates, '#2563EB', '置顶')}
+    ${makeDots(waistMap, dates, '#16A34A', '腰部')}
     ${xLabels.join('')}
   </svg>`;
 }

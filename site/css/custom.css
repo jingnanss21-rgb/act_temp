@@ -2130,7 +2130,7 @@ body {
 
 .pin-alerts {
   display: grid;
-  grid-template-columns: 1fr 1fr 1fr;
+  grid-template-columns: 1fr 1fr;
   gap: 12px;
 }
 @media (max-width: 900px) { .pin-alerts { grid-template-columns: 1fr; } }
@@ -2142,7 +2142,6 @@ body {
 }
 .pin-alert-red { border-left: 3px solid #DC2626; }
 .pin-alert-yellow { border-left: 3px solid #D97706; }
-.pin-alert-orange { border-left: 3px solid #EA580C; }
 .pin-alert-header {
   padding: 10px 14px;
   background: #F8FAFC;
