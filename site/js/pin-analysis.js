@@ -801,10 +801,14 @@ function pinSurvivalCrosshair(event, svgId) {
   const pts = svg._pts;
   if (!pts || pts.length === 0) return;
 
-  // Get mouse position in SVG coordinates
-  const rect = svg.getBoundingClientRect();
-  const viewBox = svg.viewBox.baseVal;
-  const mouseX = ((event.clientX - rect.left) / rect.width) * viewBox.width;
+  // Get mouse position in SVG coordinates using CTM
+  const point = svg.createSVGPoint();
+  point.x = event.clientX;
+  point.y = event.clientY;
+  const ctm = svg.getScreenCTM();
+  if (!ctm) return;
+  const svgPoint = point.matrixTransform(ctm.inverse());
+  const mouseX = svgPoint.x;
 
   // Find nearest point by x
   let nearest = pts[0], minDist = Math.abs(pts[0].x - mouseX);
