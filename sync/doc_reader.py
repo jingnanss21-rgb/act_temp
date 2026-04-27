@@ -94,6 +94,32 @@ def parse_xlsx_rows(xlsx_path: str, sheet_index: int = 0, header_row: int = 1,
     避免 xlsx dimension 标签截断稀疏列的问题。
     """
     from openpyxl.utils import get_column_letter
+    # 预处理：修复腾讯文档导出xlsx中空<fill/>导致openpyxl报错的问题
+    try:
+        import zipfile, io, re
+        with zipfile.ZipFile(xlsx_path, 'r') as z:
+            try:
+                styles_bytes = z.read('xl/styles.xml')
+            except KeyError:
+                styles_bytes = None
+        if styles_bytes:
+            styles_str = styles_bytes.decode('utf-8')
+            # 空<fill/>会导致 TypeError: Fill() takes no arguments
+            if re.search(r'<fill\s*/>', styles_str):
+                fixed = re.sub(r'<fill\s*/>', '<fill><patternFill patternType="none"/></fill>', styles_str)
+                # 写回
+                import shutil, tempfile
+                tmp = xlsx_path + '.fixed.xlsx'
+                with zipfile.ZipFile(xlsx_path, 'r') as zin, zipfile.ZipFile(tmp, 'w', zipfile.ZIP_DEFLATED) as zout:
+                    for item in zin.namelist():
+                        if item == 'xl/styles.xml':
+                            zout.writestr(item, fixed)
+                        else:
+                            zout.writestr(item, zin.read(item))
+                shutil.move(tmp, xlsx_path)
+    except Exception as e:
+        print(f"    ⚠ styles预处理失败: {e}")
+
     wb = load_workbook(xlsx_path, read_only=False, data_only=True)
     ws = wb.worksheets[sheet_index]
 
