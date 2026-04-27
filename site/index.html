@@ -96,6 +96,9 @@
     <div class="tab-item" data-tab="activity-alerts" onclick="switchTab('activity-alerts')">
       ⚠️ 活动预警
     </div>
+    <div class="tab-item" data-tab="pin-analysis" onclick="switchTab('pin-analysis')">
+      📌 策略分析
+    </div>
   </div>
 
   <!-- Tab 1: 行业最佳实践 -->
@@ -199,6 +202,13 @@
     </div>
   </div>
 
+  <!-- Tab 5: 策略分析 -->
+  <div id="pin-section" class="tab-content" style="display:none;">
+    <div id="pin-container">
+      <div class="loading"><div class="spinner"></div><p>加载数据中...</p></div>
+    </div>
+  </div>
+
   <!-- Export canvas (hidden) -->
   <div id="export-canvas-area"></div>
 
@@ -208,9 +218,11 @@
   <script src="js/brand-diagnosis.js"></script>
   <script src="js/activity-detail.js"></script>
   <script src="js/activity-alerts.js"></script>
+  <script src="js/pin-analysis.js"></script>
   <script>
     let diagInitialized = false;
     let alertsInitialized = false;
+    let pinInitialized = false;
 
     function switchTab(tabName) {
       document.querySelectorAll('.tab-item').forEach(t => {
@@ -220,6 +232,7 @@
       document.getElementById('brand-diagnosis-section').style.display = tabName === 'brand-diagnosis' ? '' : 'none';
       document.getElementById('detail-section').style.display = tabName === 'activity-detail' ? '' : 'none';
       document.getElementById('alert-section').style.display = tabName === 'activity-alerts' ? '' : 'none';
+      document.getElementById('pin-section').style.display = tabName === 'pin-analysis' ? '' : 'none';
 
       if (tabName === 'activity-detail' && detailData.length === 0) {
         loadActivityDetail();
@@ -231,6 +244,10 @@
       if (tabName === 'activity-alerts' && !alertsInitialized) {
         alertsInitialized = true;
         loadActivityAlerts();
+      }
+      if (tabName === 'pin-analysis' && !pinInitialized) {
+        pinInitialized = true;
+        loadPinAnalysis();
       }
     }
 
