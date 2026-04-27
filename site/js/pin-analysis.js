@@ -285,7 +285,7 @@ function renderPinAnalysis() {
         <h3 class="pin-section-title">📌 品牌流量分析</h3>
         <div class="pin-formula-note">
           <b>分组逻辑</b>：周期<7天→观察期 · 流量变化≥+5%为上涨/<-5%为下降 · 转化变化<-5%为下降 · 渠道≥70%标集中<br>
-          <span style="color:#94A3B8">流量 = 置顶前后日均曝光PV均值变化 · 转化 = 置顶前后领取率(领取PV/曝光PV)均值变化 · 渠道集中=附加标签</span>
+          <span style="color:#94A3B8">流量 = 置顶前后日均曝光PV均值变化 · 转化 = 置顶前后曝光核销率均值变化 · 渠道集中=附加标签</span>
         </div>
 
         <div class="pin-effect-tabs">
@@ -464,7 +464,13 @@ function renderEffectGrid() {
               <div class="pin-card-metric"><span>日均核销</span><b>${fmtPinNum(info.daily_avg_redeem)}</b></div>
               <div class="pin-card-metric"><span>曝光核销率</span><b>${erRate}</b></div>
             </div>
-            <div class="pin-card-chart">${renderMiniExposureSVG(info.daily_series)}</div>
+            <div class="pin-card-chart-wrap">
+              <select class="pin-card-chart-select" onchange="switchMiniChart(this,'${info.brand_id}')" onclick="event.stopPropagation()">
+                <option value="exposure">曝光</option>
+                <option value="exp_redeem_rate">曝光核销率</option>
+              </select>
+              <div class="pin-card-chart" id="mini-chart-${info.brand_id}">${renderMiniExposureSVG(info.daily_series)}</div>
+            </div>
             <div class="pin-card-tags">${renderDiagTags(info)}</div>
           </div>`;
         }).join('')}
@@ -566,14 +572,13 @@ function computeBrandEffect(bid) {
   const avgAfter = after.length > 0 ? after.reduce((s,v)=>s+v,0) / after.length : 0;
   const exposureChange = avgBefore > 0 ? (avgAfter - avgBefore) / avgBefore : (avgAfter > 0 ? 1 : 0);
 
-  // 转化率变化（置顶前后领取率 = claim/exposure 对比，同为万单位可比）
+  // 转化率变化（置顶前后曝光核销率均值对比）
   const convBefore = [], convAfter = [];
   for (const row of daily_series) {
     if (!pinDt) continue;
-    if (row.exposure <= 0) continue;
-    const claimRate = row.claim / row.exposure;
-    if (new Date(row.date) < pinDt) convBefore.push(claimRate);
-    else convAfter.push(claimRate);
+    if (row.exp_redeem_rate == null) continue;
+    if (new Date(row.date) < pinDt) convBefore.push(row.exp_redeem_rate);
+    else convAfter.push(row.exp_redeem_rate);
   }
   const convAvgBefore = convBefore.length > 0 ? convBefore.reduce((s,v)=>s+v,0) / convBefore.length : 0;
   const convAvgAfter = convAfter.length > 0 ? convAfter.reduce((s,v)=>s+v,0) / convAfter.length : 0;
@@ -687,7 +692,7 @@ function openPinModal(bid) {
         <span>📈 品牌趋势（最近30天）</span>
         <select id="pin-chart-metric" onchange="updatePinChart()">
           <option value="exposure">曝光PV</option>
-          <option value="claim_rate">领取率(转化)</option>
+          <option value="exp_redeem_rate">曝光核销率(转化)</option>
           <option value="redeem">核销PV</option>
           <option value="claim">领取PV</option>
           <option value="store_rate">到店核销率</option>
@@ -732,12 +737,10 @@ function updatePinChart() {
   if (!pinCurrentModalBrand) return;
   const info = computeBrandEffect(pinCurrentModalBrand);
   const metric = document.getElementById('pin-chart-metric').value;
-  const isRate = ['store_rate', 'high_freq', 'low_freq', 'claim_rate'].includes(metric);
+  const isRate = ['store_rate', 'high_freq', 'low_freq', 'exp_redeem_rate'].includes(metric);
   const series = info.daily_series.map(r => {
     let value;
-    if (metric === 'claim_rate') {
-      value = r.exposure > 0 ? r.claim / r.exposure : null;
-    } else if (isRate) {
+    if (isRate) {
       value = r[metric] != null ? parseFloat(r[metric]) : null;
     } else {
       value = r[metric] || 0;
@@ -1038,10 +1041,17 @@ function pinSurvivalCrosshairHide(svgId) {
 }
 
 function renderMiniExposureSVG(series) {
+  return renderMiniSVG(series, 'exposure');
+}
+
+function renderMiniSVG(series, metric) {
   if (!series || series.length === 0) return '<div style="height:40px;color:#cbd5e1;font-size:10px;text-align:center;line-height:40px">无数据</div>';
   const W = 200, H = 40;
-  const vals = series.map(s => s.exposure || 0);
-  const max = Math.max(...vals, 1);
+  const vals = series.map(s => {
+    if (metric === 'exp_redeem_rate') return s.exp_redeem_rate != null ? s.exp_redeem_rate : 0;
+    return s.exposure || 0;
+  });
+  const max = Math.max(...vals, metric === 'exp_redeem_rate' ? 0.001 : 1);
   const xStep = W / Math.max(vals.length - 1, 1);
   let path = '';
   vals.forEach((v, i) => {
@@ -1049,9 +1059,18 @@ function renderMiniExposureSVG(series) {
     const y = H - (v / max) * (H - 4) - 2;
     path += (i === 0 ? 'M' : 'L') + x.toFixed(1) + ',' + y.toFixed(1) + ' ';
   });
+  const color = metric === 'exp_redeem_rate' ? '#D97706' : '#2563EB';
   return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" style="width:100%;height:${H}px">
-    <path d="${path}" fill="none" stroke="#2563EB" stroke-width="1.5"/>
+    <path d="${path}" fill="none" stroke="${color}" stroke-width="1.5"/>
   </svg>`;
+}
+
+// 品牌卡片切换迷你趋势图指标
+function switchMiniChart(selectEl, bid) {
+  const metric = selectEl.value;
+  const info = computeBrandEffect(bid);
+  const container = document.getElementById('mini-chart-' + bid);
+  if (container) container.innerHTML = renderMiniSVG(info.daily_series, metric);
 }
 
 function renderBigChartSVG(series, pinDate, isRate) {
