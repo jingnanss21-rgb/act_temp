@@ -53,7 +53,7 @@ async function loadPinAnalysis() {
     const [pinnedOps, waistQual, brandDaily, actDaily, notes] = await Promise.all([
       fetchAll('tem_pinned_ops', '*'),
       fetchAll('tem_waist_qualified', '*'),
-      fetchAll('tem_brand_daily', 'brand_id,brand_name,category_l4,w7_avg_txn_count,is_online_today,report_date', 'report_date.desc'),
+      fetchAll('tem_brand_daily', 'brand_id,brand_name,category_l4,w7_avg_txn_count,is_online_today,is_alive_w7,report_date', 'report_date.desc'),
       fetchAll('tem_activity_daily', 'brand_id,activity_id,activity_name,report_date,exposure_uv,claim_uv,redeem_uv,store_redeem_rate_uv,exposure_pv,claim_pv,redeem_pv'),
       fetchAll('tem_pinned_notes', '*'),
     ]);
@@ -128,52 +128,66 @@ function classifyBrands() {
 }
 
 // ============================================================
-// 总体存活率趋势（置顶组 vs 腰部组，用 brand_daily.is_online_today）
+// 存活率趋势（3条线：置顶 / 达标 / 全量腰部）
+// 分母 = 当日 is_online_today=1 的品牌数
+// 分子 = 其中 is_alive_w7=1 的品牌数
 // ============================================================
 function computeSurvivalTrend() {
   const pinnedIds = new Set(pinData.pinnedOps.map(p => String(p.brand_id)));
-  const waistIds = new Set(Object.keys(pinData.waistQualified));
+  const qualifiedIds = new Set();
+  const waistIds = new Set();
+  for (const [bid, w] of Object.entries(pinData.waistQualified)) {
+    waistIds.add(bid);
+    if (w.is_qualified === '达标') qualifiedIds.add(bid);
+  }
 
-  // date → { pinned_online: Set, pinned_total: Set, waist_online: Set, waist_total: Set }
+  function isOnline(v) { return String(v).startsWith('1'); }
+  function isAlive(v) { return String(v).startsWith('1'); }
+
+  // date → { group → { online: Set, alive: Set } }
   const dateMap = {};
+  const groups = ['pinned', 'qualified', 'waist'];
 
   for (const b of pinData.brandDailyAll) {
     const bid = String(b.brand_id);
     const d = b.report_date;
     if (!d) continue;
-    const inPinned = pinnedIds.has(bid);
-    const inWaist = waistIds.has(bid);
-    if (!inPinned && !inWaist) continue;
+    const online = isOnline(b.is_online_today);
+    const alive = isAlive(b.is_alive_w7);
 
-    if (!dateMap[d]) dateMap[d] = {
-      pinned_online: new Set(), pinned_total: new Set(),
-      waist_online: new Set(), waist_total: new Set(),
-    };
+    const belongs = [];
+    if (pinnedIds.has(bid)) belongs.push('pinned');
+    if (qualifiedIds.has(bid)) belongs.push('qualified');
+    if (waistIds.has(bid)) belongs.push('waist');
+    if (belongs.length === 0) continue;
 
-    if (inPinned) {
-      dateMap[d].pinned_total.add(bid);
-      if (String(b.is_online_today) === '1') dateMap[d].pinned_online.add(bid);
+    if (!dateMap[d]) {
+      dateMap[d] = {};
+      for (const g of groups) dateMap[d][g] = { online: new Set(), alive: new Set() };
     }
-    if (inWaist) {
-      dateMap[d].waist_total.add(bid);
-      if (String(b.is_online_today) === '1') dateMap[d].waist_online.add(bid);
+
+    for (const g of belongs) {
+      if (online) {
+        dateMap[d][g].online.add(bid);
+        if (alive) dateMap[d][g].alive.add(bid);
+      }
     }
   }
 
   const dates = Object.keys(dateMap).sort();
-  const pinned = dates.map(d => ({
-    date: d,
-    alive: dateMap[d].pinned_online.size,
-    total: dateMap[d].pinned_total.size,
-    rate: dateMap[d].pinned_total.size > 0 ? dateMap[d].pinned_online.size / dateMap[d].pinned_total.size : 0,
-  }));
-  const waist = dates.map(d => ({
-    date: d,
-    alive: dateMap[d].waist_online.size,
-    total: dateMap[d].waist_total.size,
-    rate: dateMap[d].waist_total.size > 0 ? dateMap[d].waist_online.size / dateMap[d].waist_total.size : 0,
-  }));
-  return { pinned, waist };
+  function buildSeries(group) {
+    return dates.map(d => {
+      const onlineCount = dateMap[d][group].online.size;
+      const aliveCount = dateMap[d][group].alive.size;
+      return {
+        date: d,
+        alive: aliveCount,
+        total: onlineCount,
+        rate: onlineCount > 0 ? aliveCount / onlineCount : 0,
+      };
+    });
+  }
+  return { pinned: buildSeries('pinned'), qualified: buildSeries('qualified'), waist: buildSeries('waist') };
 }
 
 // ============================================================
@@ -222,10 +236,10 @@ function renderPinAnalysis() {
         <!-- 存活率趋势 -->
         <div class="pin-trend-card">
           <div class="pin-trend-header">
-            <span>在线率趋势（置顶 vs 腰部）</span>
-            <span class="pin-trend-meta">置顶 ${pinData.pinnedOps.length} · 腰部 ${Object.keys(pinData.waistQualified).length}</span>
+            <span>存活率趋势（在线商户中近7日存活占比）</span>
+            <span class="pin-trend-meta">置顶 ${pinData.pinnedOps.length} · 达标 ${c.qualified_pinned.length + c.qualified_unpinned.length} · 腰部 ${Object.keys(pinData.waistQualified).length}</span>
           </div>
-          <div class="pin-trend-svg">${renderSurvivalSVG(survival.pinned, survival.waist)}</div>
+          <div class="pin-trend-svg">${renderSurvivalSVG(survival.pinned, survival.qualified, survival.waist)}</div>
         </div>
 
         <!-- 两张告警卡片 -->
@@ -635,28 +649,37 @@ function renderBrandListMini(bids) {
   }).join('') + (bids.length > 20 ? `<div class="pin-alert-more">+${bids.length-20}</div>` : '');
 }
 
-function renderSurvivalSVG(pinnedSeries, waistSeries) {
-  if ((!pinnedSeries || pinnedSeries.length === 0) && (!waistSeries || waistSeries.length === 0)) {
+function renderSurvivalSVG(pinnedSeries, qualifiedSeries, waistSeries) {
+  const allSeries = [pinnedSeries, qualifiedSeries, waistSeries].filter(s => s && s.length > 0);
+  if (allSeries.length === 0) {
     return '<div style="text-align:center;color:#94A3B8;padding:20px">暂无数据</div>';
   }
-  const W = 720, H = 160, P = 36, TOP = 28;
-  const maxRate = 1;
+  const W = 720, H = 180, P = 36, TOP = 32;
 
   // 合并日期轴
   const dateSet = new Set();
-  (pinnedSeries || []).forEach(p => dateSet.add(p.date));
-  (waistSeries || []).forEach(p => dateSet.add(p.date));
+  allSeries.forEach(s => s.forEach(p => dateSet.add(p.date)));
   const dates = [...dateSet].sort();
   const xStep = (W - P*2) / Math.max(dates.length - 1, 1);
 
-  // 按日期索引
-  const pinnedMap = {};
-  (pinnedSeries || []).forEach(p => pinnedMap[p.date] = p);
-  const waistMap = {};
-  (waistSeries || []).forEach(p => waistMap[p.date] = p);
+  // 动态 Y 轴上限
+  let maxRate = 0;
+  allSeries.forEach(s => s.forEach(p => { if (p.rate > maxRate) maxRate = p.rate; }));
+  maxRate = Math.min(1, Math.max(maxRate * 1.15, 0.1));
 
-  // 画线函数
-  function makePath(map, dates) {
+  const lines = [
+    { series: pinnedSeries || [],    color: '#2563EB', label: '置顶商户' },
+    { series: qualifiedSeries || [], color: '#16A34A', label: '达标商户' },
+    { series: waistSeries || [],     color: '#EA580C', label: '全量腰部' },
+  ];
+
+  function toMap(s) { const m = {}; s.forEach(p => m[p.date] = p); return m; }
+
+  let pathsHTML = '';
+  let dotsHTML = '';
+  for (const line of lines) {
+    if (line.series.length === 0) continue;
+    const map = toMap(line.series);
     let path = '';
     dates.forEach((d, i) => {
       const p = map[d];
@@ -665,17 +688,24 @@ function renderSurvivalSVG(pinnedSeries, waistSeries) {
       const y = H - P - (p.rate / maxRate) * (H - P - TOP);
       path += (path ? 'L' : 'M') + x.toFixed(1) + ',' + y.toFixed(1) + ' ';
     });
-    return path;
+    pathsHTML += `<path d="${path}" fill="none" stroke="${line.color}" stroke-width="2"/>`;
+    dates.forEach((d, i) => {
+      const p = map[d];
+      if (!p) return;
+      const x = P + i * xStep;
+      const y = H - P - (p.rate / maxRate) * (H - P - TOP);
+      dotsHTML += `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="2.5" fill="${line.color}">
+        <title>${line.label} ${p.date}: ${p.alive}/${p.total} (${(p.rate*100).toFixed(1)}%)</title>
+      </circle>`;
+    });
   }
 
-  const pinnedPath = makePath(pinnedMap, dates);
-  const waistPath = makePath(waistMap, dates);
-
   // Y轴grid
-  const grids = [0.25, 0.5, 0.75, 1.0].map(r => {
+  const grids = [0.25, 0.5, 0.75, 1.0].filter(r => r <= 1).map(r => {
+    const val = r * maxRate;
     const y = H - P - r * (H - P - TOP);
     return `<line x1="${P}" y1="${y}" x2="${W-P}" y2="${y}" stroke="#E2E8F0" stroke-dasharray="3,3"/>
-            <text x="${P-6}" y="${y+4}" text-anchor="end" font-size="10" fill="#94A3B8">${(r*100).toFixed(0)}%</text>`;
+            <text x="${P-6}" y="${y+4}" text-anchor="end" font-size="10" fill="#94A3B8">${(val*100).toFixed(0)}%</text>`;
   }).join('');
 
   // X轴日期
@@ -688,34 +718,19 @@ function renderSurvivalSVG(pinnedSeries, waistSeries) {
     });
   }
 
-  // 数据点 + tooltip
-  function makeDots(map, dates, color, label) {
-    return dates.map((d, i) => {
-      const p = map[d];
-      if (!p) return '';
-      const x = P + i * xStep;
-      const y = H - P - (p.rate / maxRate) * (H - P - TOP);
-      return `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="2.5" fill="${color}">
-        <title>${label} ${p.date}: ${p.alive}/${p.total} (${(p.rate*100).toFixed(1)}%)</title>
-      </circle>`;
-    }).join('');
-  }
-
   // 图例
-  const legend = `
-    <rect x="${W-P-200}" y="4" width="12" height="3" rx="1" fill="#2563EB"/>
-    <text x="${W-P-184}" y="10" font-size="11" fill="#2563EB">置顶组</text>
-    <rect x="${W-P-120}" y="4" width="12" height="3" rx="1" fill="#16A34A"/>
-    <text x="${W-P-104}" y="10" font-size="11" fill="#16A34A">腰部组</text>
-  `;
+  let legendX = W - P - 280;
+  const legend = lines.filter(l => l.series.length > 0).map((l, i) => {
+    const x = legendX + i * 90;
+    return `<rect x="${x}" y="6" width="14" height="3" rx="1" fill="${l.color}"/>
+            <text x="${x+18}" y="12" font-size="11" fill="${l.color}">${l.label}</text>`;
+  }).join('');
 
   return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:${H}px">
     ${legend}
     ${grids}
-    <path d="${pinnedPath}" fill="none" stroke="#2563EB" stroke-width="2"/>
-    <path d="${waistPath}" fill="none" stroke="#16A34A" stroke-width="2"/>
-    ${makeDots(pinnedMap, dates, '#2563EB', '置顶')}
-    ${makeDots(waistMap, dates, '#16A34A', '腰部')}
+    ${pathsHTML}
+    ${dotsHTML}
     ${xLabels.join('')}
   </svg>`;
 }
