@@ -770,7 +770,8 @@ function renderSurvivalSVG(pinnedSeries, qualifiedSeries, waistSeries) {
     });
   }
 
-  return `<svg id="${svgId}" viewBox="0 0 ${W} ${H}" style="width:100%;height:${H}px">
+  return `<svg id="${svgId}" viewBox="0 0 ${W} ${H}" style="width:100%;height:${H}px"
+    data-pts='${JSON.stringify(allPoints)}'>
     ${legend}
     ${grids}
     ${pathsHTML}
@@ -786,17 +787,18 @@ function renderSurvivalSVG(pinnedSeries, qualifiedSeries, waistSeries) {
     <rect x="${P}" y="${TOP}" width="${W-P*2}" height="${H-P-TOP}" fill="transparent"
       onmousemove="pinSurvivalCrosshair(event,'${svgId}')"
       onmouseleave="pinSurvivalCrosshairHide('${svgId}')"/>
-  </svg>
-  <script>
-    window._pinSurvivalPts_${svgId.replace(/-/g,'_')} = ${JSON.stringify(allPoints)};
-  </script>`;
+  </svg>`;
 }
 
 // Crosshair interaction for survival trend SVG
 function pinSurvivalCrosshair(event, svgId) {
   const svg = document.getElementById(svgId);
   if (!svg) return;
-  const pts = window['_pinSurvivalPts_' + svgId.replace(/-/g, '_')];
+  // Parse points from data attribute (cached after first parse)
+  if (!svg._pts) {
+    try { svg._pts = JSON.parse(svg.getAttribute('data-pts')); } catch(e) { return; }
+  }
+  const pts = svg._pts;
   if (!pts || pts.length === 0) return;
 
   // Get mouse position in SVG coordinates
