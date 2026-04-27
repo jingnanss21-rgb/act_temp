@@ -415,7 +415,7 @@ function getBrandQuadrantData(bid) {
   const txn = parseFloat(row.w7_avg_txn_count);
   const er = parseFloat(row.daily_exposure_redeem_rate);
   if (isNaN(hf) || isNaN(lf) || isNaN(txn) || txn <= 0 || isNaN(er)) return null;
-  return { x: (hf + lf) / (txn * 10000), y: er, hf, lf, txn, er };
+  return { x: ((hf + lf) / 7) / (txn * 10000), y: er, hf, lf, txn, er };
 }
 
 function renderEffectGrid() {
