@@ -415,7 +415,7 @@ function getBrandQuadrantData(bid) {
   const txn = parseFloat(row.w7_avg_txn_count);
   const er = parseFloat(row.daily_exposure_redeem_rate);
   if (isNaN(hf) || isNaN(lf) || isNaN(txn) || txn <= 0 || isNaN(er)) return null;
-  return { x: (hf + lf) / txn, y: er, hf, lf, txn, er };
+  return { x: (hf + lf) / (txn * 10000), y: er, hf, lf, txn, er };
 }
 
 function renderEffectGrid() {
@@ -493,7 +493,7 @@ function renderEffectGrid() {
 
 function renderBrandCard(info) {
   const erRate = info.exposure_redeem_rate != null ? fmtPinPct(info.exposure_redeem_rate) : '-';
-  const xVal = info._qd ? fmtPinNum(Math.round(info._qd.x)) : '-';
+  const xVal = info._qd ? (info._qd.x * 100).toFixed(1) + '%' : '-';
   return `<div class="pin-card" onclick="openPinModal('${info.brand_id}')">
     <div class="pin-card-head">
       <div class="pin-card-brand">${info.brand_name || info.brand_id}</div>
@@ -515,22 +515,16 @@ function renderQuadrantSVG(points, xMedian, yThreshold) {
   const W = 720, H = 400, P = 60, TOP = 20, RIGHT = 20;
   const plotW = W - P - RIGHT, plotH = H - TOP - P;
 
-  // 数据范围（log scale for X since range is huge）
+  // 数据范围
   const xVals = points.map(p => p._qd.x);
   const yVals = points.map(p => p._qd.y);
-  const xMin = Math.min(...xVals) * 0.8;
-  const xMax = Math.max(...xVals) * 1.2;
+  const xMin = 0;
+  const xMax = Math.max(...xVals) * 1.15;
   const yMin = 0;
   const yMax = Math.max(...yVals, yThreshold * 2) * 1.2;
 
-  // Log scale for X
-  const logXMin = Math.log10(Math.max(xMin, 1));
-  const logXMax = Math.log10(Math.max(xMax, 2));
-  const logXMedian = Math.log10(Math.max(xMedian, 1));
-
   function toSvgX(val) {
-    const logVal = Math.log10(Math.max(val, 1));
-    return P + ((logVal - logXMin) / (logXMax - logXMin)) * plotW;
+    return P + (val / xMax) * plotW;
   }
   function toSvgY(val) {
     return TOP + plotH - ((val - yMin) / (yMax - yMin)) * plotH;
@@ -550,7 +544,7 @@ function renderQuadrantSVG(points, xMedian, yThreshold) {
   const thresholdLines = `
     <line x1="${mX}" y1="${TOP}" x2="${mX}" y2="${TOP+plotH}" stroke="#94A3B8" stroke-width="1" stroke-dasharray="4,3"/>
     <line x1="${P}" y1="${tY}" x2="${P+plotW}" y2="${tY}" stroke="#94A3B8" stroke-width="1" stroke-dasharray="4,3"/>
-    <text x="${mX+4}" y="${TOP+14}" font-size="10" fill="#64748B">X中位数 ${fmtPinNum(Math.round(xMedian))}</text>
+    <text x="${mX+4}" y="${TOP+14}" font-size="10" fill="#64748B">X中位数 ${(xMedian*100).toFixed(1)}%</text>
     <text x="${P+plotW+4}" y="${tY+4}" font-size="10" fill="#64748B">1%</text>
   `;
 
@@ -574,17 +568,18 @@ function renderQuadrantSVG(points, xMedian, yThreshold) {
     const name = info.brand_name || info.brand_id;
     return `<circle cx="${sx.toFixed(1)}" cy="${sy.toFixed(1)}" r="6" fill="${color}" opacity="0.7" style="cursor:pointer"
       onclick="pinQuadrantClick('${q}')">
-      <title>${name}\n老客曝光比: ${fmtPinNum(Math.round(qd.x))}\n曝光核销率: ${(qd.y*100).toFixed(2)}%</title>
+      <title>${name}\n老客曝光比: ${(qd.x*100).toFixed(1)}%\n曝光核销率: ${(qd.y*100).toFixed(2)}%</title>
     </circle>
     <text x="${sx.toFixed(1)}" y="${(sy-8).toFixed(1)}" text-anchor="middle" font-size="9" fill="#1E293B" pointer-events="none">${name.length > 4 ? name.slice(0,4)+'…' : name}</text>`;
   }).join('');
 
-  // X轴刻度 (log scale)
+  // X轴刻度 (linear, %)
   const xTicks = [];
-  for (let p = Math.ceil(logXMin); p <= Math.floor(logXMax); p++) {
-    const val = Math.pow(10, p);
-    const sx = toSvgX(val);
-    xTicks.push(`<text x="${sx}" y="${TOP+plotH+16}" text-anchor="middle" font-size="10" fill="#64748B">${fmtPinNum(val)}</text>`);
+  const xTickStep = xMax > 1 ? 0.5 : xMax > 0.5 ? 0.1 : 0.05;
+  for (let v = xTickStep; v <= xMax; v += xTickStep) {
+    const sx = toSvgX(v);
+    if (sx < P || sx > P + plotW) continue;
+    xTicks.push(`<text x="${sx}" y="${TOP+plotH+16}" text-anchor="middle" font-size="10" fill="#64748B">${(v*100).toFixed(0)}%</text>`);
     xTicks.push(`<line x1="${sx}" y1="${TOP}" x2="${sx}" y2="${TOP+plotH}" stroke="#E2E8F0" stroke-dasharray="2,2"/>`);
   }
 
