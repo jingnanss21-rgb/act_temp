@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>策略分析看板</title>
+  <link rel="stylesheet" href="css/custom.css">
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+</head>
+<body>
+
+  <!-- 密码验证遮罩 -->
+  <div id="auth-overlay" style="position:fixed;inset:0;z-index:9999;background:#F8FAFC;display:flex;align-items:center;justify-content:center">
+    <div style="text-align:center;max-width:360px;padding:40px">
+      <div style="font-size:40px;margin-bottom:16px">🔒</div>
+      <h2 style="font-size:20px;font-weight:700;color:#1E293B;margin-bottom:8px">策略分析看板</h2>
+      <p style="font-size:13px;color:#64748B;margin-bottom:24px">请输入访问密码</p>
+      <input type="password" id="auth-input" placeholder="输入密码" autocomplete="off"
+        style="width:100%;padding:10px 16px;border:2px solid #E2E8F0;border-radius:8px;font-size:14px;outline:none;text-align:center;letter-spacing:2px"
+        onkeyup="if(event.key==='Enter')checkAuth()">
+      <button onclick="checkAuth()"
+        style="width:100%;margin-top:12px;padding:10px;background:#2563EB;color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer">
+        进入看板
+      </button>
+      <div id="auth-error" style="color:#DC2626;font-size:12px;margin-top:8px;display:none">密码错误</div>
+    </div>
+  </div>
+
+  <script>
+    const AUTH_KEY = 'act_dashboard_auth';
+    const AUTH_EXPIRE_KEY = 'act_dashboard_auth_expire';
+    const AUTH_HASH = '508f4a3fd1792f8b8e37ba9f6fcc4bd587301bcec38931186939c8db9888f831';
+    const AUTH_DAYS = 7;
+
+    async function sha256(text) {
+      const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
+      return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
+    }
+
+    async function checkAuth() {
+      const input = document.getElementById('auth-input').value;
+      const hash = await sha256(input);
+      if (hash === AUTH_HASH) {
+        localStorage.setItem(AUTH_KEY, 'true');
+        localStorage.setItem(AUTH_EXPIRE_KEY, String(Date.now() + AUTH_DAYS * 86400000));
+        document.getElementById('auth-overlay').style.display = 'none';
+      } else {
+        document.getElementById('auth-error').style.display = 'block';
+        document.getElementById('auth-input').style.borderColor = '#DC2626';
+        setTimeout(() => {
+          document.getElementById('auth-error').style.display = 'none';
+          document.getElementById('auth-input').style.borderColor = '#E2E8F0';
+        }, 2000);
+      }
+    }
+
+    const expireAt = Number(localStorage.getItem(AUTH_EXPIRE_KEY) || 0);
+    if (localStorage.getItem(AUTH_KEY) === 'true' && Date.now() < expireAt) {
+      document.getElementById('auth-overlay').style.display = 'none';
+    } else {
+      localStorage.removeItem(AUTH_KEY);
+      localStorage.removeItem(AUTH_EXPIRE_KEY);
+    }
+  </script>
+
+  <!-- Header -->
+  <div class="header">
+    <h1>📌 策略分析看板</h1>
+    <div class="meta">
+      <span id="update-time"></span>
+    </div>
+  </div>
+
+  <!-- 内容 -->
+  <div style="padding: 0 24px 40px;">
+    <div id="pin-container">
+      <div class="loading"><div class="spinner"></div><p>加载数据中...</p></div>
+    </div>
+  </div>
+
+  <!-- Supabase config (inline, same as main dashboard) -->
+  <script>
+    const SUPABASE_URL = 'https://wiyarxoivfmkneumfmbl.supabase.co';
+    const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndpeWFyeG9pdmZta25ldW1mbWJsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzUzOTExMDYsImV4cCI6MjA5MDk2NzEwNn0.jo1GoR3ZuFv2HFZcVoOKpVb19SBUIHZL3EoR266njU4';
+    const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  </script>
+  <script src="js/pin-analysis.js"></script>
+  <script>
+    // 页面加载后自动启动
+    loadPinAnalysis();
+  </script>
+</body>
+</html>
