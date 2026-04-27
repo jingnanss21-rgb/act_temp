@@ -15,13 +15,14 @@ let pinData = {
   brandDailyAll: [],      // all brand_daily rows (for survival trend)
   activityDaily: {},      // brand_id → [{report_date, exposure_uv, claim_uv, redeem_uv, store_redeem_rate_uv}...]
   notes: {},              // brand_id → note
-  survivalTrend: { pinned: [], waist: [] },
+  survivalTrend: { pinned: [], qualified: [], waist: [] },
+  survivalPeriod: '30d',  // '7d' | '30d'
   classified: {
     qualified_pinned: [],
     qualified_unpinned: [],
     unqualified_pinned: [],
   },
-  effectTab: 'effective',  // 'effective' | 'ineffective'
+  effectTab: 'eff_alive',  // 'eff_alive' | 'eff_dead' | 'ineff_alive' | 'ineff_dead'
 };
 
 let pinMetricsCache = {};  // brand_id → {daily_exposure_avg, daily_claim_avg, ...}
@@ -174,7 +175,13 @@ function computeSurvivalTrend() {
     }
   }
 
-  const dates = Object.keys(dateMap).filter(d => d >= '2026-04-01').sort();
+  const allDates = Object.keys(dateMap).filter(d => d >= '2026-04-01').sort();
+  // 根据 period 筛选
+  const period = pinData.survivalPeriod || '30d';
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - (period === '7d' ? 7 : 30));
+  const cutoffStr = cutoff.toISOString().slice(0, 10);
+  const dates = allDates.filter(d => d >= cutoffStr);
   function buildSeries(group) {
     return dates.map(d => {
       const onlineCount = dateMap[d][group].online.size;
@@ -237,9 +244,13 @@ function renderPinAnalysis() {
         <div class="pin-trend-card">
           <div class="pin-trend-header">
             <span>存活率趋势（在线商户中近7日存活占比）</span>
-            <span class="pin-trend-meta">置顶 ${pinData.pinnedOps.length} · 达标 ${c.qualified_pinned.length + c.qualified_unpinned.length} · 腰部 ${Object.keys(pinData.waistQualified).length}</span>
+            <div>
+              <button class="pin-period-btn ${pinData.survivalPeriod === '7d' ? 'active' : ''}" onclick="switchSurvivalPeriod('7d')">近7天</button>
+              <button class="pin-period-btn ${pinData.survivalPeriod === '30d' ? 'active' : ''}" onclick="switchSurvivalPeriod('30d')">近30天</button>
+            </div>
           </div>
-          <div class="pin-trend-svg">${renderSurvivalSVG(survival.pinned, survival.qualified, survival.waist)}</div>
+          <div class="pin-trend-meta-row">置顶 ${pinData.pinnedOps.length} · 达标 ${c.qualified_pinned.length + c.qualified_unpinned.length} · 腰部 ${Object.keys(pinData.waistQualified).length}</div>
+          <div id="pin-trend-svg-container" class="pin-trend-svg">${renderSurvivalSVG(survival.pinned, survival.qualified, survival.waist)}</div>
         </div>
 
         <!-- 两张告警卡片 -->
@@ -266,11 +277,17 @@ function renderPinAnalysis() {
         <h3 class="pin-section-title">📌 品牌流量分析</h3>
 
         <div class="pin-effect-tabs">
-          <button class="pin-effect-tab ${pinData.effectTab === 'effective' ? 'active' : ''}" onclick="switchPinEffectTab('effective')">
-            ✅ 流量有效 <span id="pin-count-effective"></span>
+          <button class="pin-effect-tab ${pinData.effectTab === 'eff_alive' ? 'active' : ''}" onclick="switchPinEffectTab('eff_alive')">
+            ✅ 流量有效+存活 <span id="pin-count-eff_alive"></span>
           </button>
-          <button class="pin-effect-tab ${pinData.effectTab === 'ineffective' ? 'active' : ''}" onclick="switchPinEffectTab('ineffective')">
-            ❌ 流量无效 <span id="pin-count-ineffective"></span>
+          <button class="pin-effect-tab ${pinData.effectTab === 'eff_dead' ? 'active' : ''}" onclick="switchPinEffectTab('eff_dead')">
+            ⚠️ 流量有效+不存活 <span id="pin-count-eff_dead"></span>
+          </button>
+          <button class="pin-effect-tab ${pinData.effectTab === 'ineff_alive' ? 'active' : ''}" onclick="switchPinEffectTab('ineff_alive')">
+            🟡 流量无效+存活 <span id="pin-count-ineff_alive"></span>
+          </button>
+          <button class="pin-effect-tab ${pinData.effectTab === 'ineff_dead' ? 'active' : ''}" onclick="switchPinEffectTab('ineff_dead')">
+            ❌ 流量无效+不存活 <span id="pin-count-ineff_dead"></span>
           </button>
         </div>
 
@@ -289,6 +306,17 @@ function renderPinAnalysis() {
   renderEffectGrid();
 }
 
+function switchSurvivalPeriod(period) {
+  pinData.survivalPeriod = period;
+  document.querySelectorAll('.pin-period-btn').forEach(b => {
+    b.classList.toggle('active', b.textContent.includes(period === '7d' ? '7' : '30'));
+  });
+  const survival = computeSurvivalTrend();
+  pinData.survivalTrend = survival;
+  document.getElementById('pin-trend-svg-container').innerHTML =
+    renderSurvivalSVG(survival.pinned, survival.qualified, survival.waist);
+}
+
 // ============================================================
 // 渲染置顶效果卡片网格
 // ============================================================
@@ -296,24 +324,24 @@ function renderEffectGrid() {
   const grid = document.getElementById('pin-cards-grid');
   if (!grid) return;
 
-  // 所有已置顶品牌的效果卡
   const pinnedBids = pinData.pinnedOps.map(p => String(p.brand_id));
 
-  const effective = [];
-  const ineffective = [];
+  const groups = { eff_alive: [], eff_dead: [], ineff_alive: [], ineff_dead: [] };
   for (const bid of pinnedBids) {
     const info = computeBrandEffect(bid);
-    if (info.is_effective) {
-      effective.push(info);
-    } else {
-      ineffective.push(info);
-    }
+    if (info.is_effective && info.is_alive) groups.eff_alive.push(info);
+    else if (info.is_effective && !info.is_alive) groups.eff_dead.push(info);
+    else if (!info.is_effective && info.is_alive) groups.ineff_alive.push(info);
+    else groups.ineff_dead.push(info);
   }
 
-  document.getElementById('pin-count-effective').textContent = effective.length;
-  document.getElementById('pin-count-ineffective').textContent = ineffective.length;
+  // 更新计数
+  for (const key of Object.keys(groups)) {
+    const el = document.getElementById(`pin-count-${key}`);
+    if (el) el.textContent = groups[key].length;
+  }
 
-  const list = pinData.effectTab === 'effective' ? effective : ineffective;
+  const list = groups[pinData.effectTab] || [];
   list.sort((a, b) => (b.pin_period_days || 0) - (a.pin_period_days || 0));
 
   if (list.length === 0) {
@@ -330,8 +358,8 @@ function renderEffectGrid() {
         <div class="pin-card-meta">周期${info.pin_period_days}天</div>
       </div>
       <div class="pin-card-metrics">
-        <div class="pin-card-metric"><span>曝光</span><b>${fmtPinNum(info.total_exposure)}</b></div>
-        <div class="pin-card-metric"><span>核销</span><b>${fmtPinNum(info.total_redeem)}</b></div>
+        <div class="pin-card-metric"><span>日均曝光</span><b>${fmtPinNum(info.daily_avg_exposure)}</b></div>
+        <div class="pin-card-metric"><span>日均核销</span><b>${fmtPinNum(info.daily_avg_redeem)}</b></div>
       </div>
       <div class="pin-card-chart">${renderMiniExposureSVG(info.daily_series)}</div>
       <div class="pin-card-diag" style="color:${diagColor}">${diagLabel}</div>
@@ -342,8 +370,7 @@ function renderEffectGrid() {
 function switchPinEffectTab(tab) {
   pinData.effectTab = tab;
   document.querySelectorAll('.pin-effect-tab').forEach(b => {
-    b.classList.toggle('active', (b.textContent.indexOf('有效') >= 0 && tab === 'effective') ||
-                                  (b.textContent.indexOf('无效') >= 0 && tab === 'ineffective'));
+    b.classList.toggle('active', b.getAttribute('onclick').includes(`'${tab}'`));
   });
   renderEffectGrid();
 }
@@ -436,6 +463,9 @@ function computeBrandEffect(bid) {
     diag_color = '#DC2626';
   }
 
+  // 存活判断：最新 brand_daily 的 is_alive_w7
+  const isAlive = String((bd.is_alive_w7 || '')).startsWith('1');
+
   return {
     brand_id: bid,
     brand_name: w.brand_name || bd.brand_name || op?.brand_name || bid,
@@ -444,13 +474,17 @@ function computeBrandEffect(bid) {
     pin_date: pinDate,
     pin_period_days: pinPeriodDays,
     is_effective: before.length > 0 && exposureChange >= 0.2,
+    is_alive: isAlive,
     alive_days, data_days,
     total_exposure, total_claim, total_redeem,
+    // 日均
+    daily_avg_exposure: data_days > 0 ? total_exposure / data_days : 0,
+    daily_avg_claim: data_days > 0 ? total_claim / data_days : 0,
+    daily_avg_redeem: data_days > 0 ? total_redeem / data_days : 0,
     exposure_claim_rate: total_exposure > 0 ? total_claim / total_exposure : 0,
     claim_redeem_rate: total_claim > 0 ? total_redeem / total_claim : 0,
     exposure_redeem_rate: total_exposure > 0 ? total_redeem / total_exposure : 0,
     store_redeem_rate,
-    daily_exposure_avg: data_days > 0 ? total_exposure / data_days : 0,
     w7_avg_txn_count: bd.w7_avg_txn_count || '-',
     avg_before: avgBefore, avg_after: avgAfter,
     exposure_change: exposureChange,
@@ -481,11 +515,11 @@ function openPinModal(bid) {
       <button class="pin-modal-close" onclick="closePinModal()">✕</button>
     </div>
 
-    <!-- 核心指标 -->
+    <!-- 核心指标（日均） -->
     <div class="pin-modal-metrics">
       <div class="pin-m-item"><div class="pin-m-label">日均交易笔数</div><div class="pin-m-val">${fmtPinNum(parseFloat(info.w7_avg_txn_count)) || '-'}</div></div>
-      <div class="pin-m-item"><div class="pin-m-label">曝光</div><div class="pin-m-val">${fmtPinNum(info.total_exposure)}</div></div>
-      <div class="pin-m-item"><div class="pin-m-label">核销</div><div class="pin-m-val">${fmtPinNum(info.total_redeem)}</div></div>
+      <div class="pin-m-item"><div class="pin-m-label">日均曝光</div><div class="pin-m-val">${fmtPinNum(info.daily_avg_exposure)}</div></div>
+      <div class="pin-m-item"><div class="pin-m-label">日均核销</div><div class="pin-m-val">${fmtPinNum(info.daily_avg_redeem)}</div></div>
       <div class="pin-m-item"><div class="pin-m-label">曝光核销率</div><div class="pin-m-val">${fmtPinPct(info.exposure_redeem_rate)}</div></div>
       <div class="pin-m-item"><div class="pin-m-label">到店核销率</div><div class="pin-m-val">${info.store_redeem_rate != null ? fmtPinPct(info.store_redeem_rate) : '-'}</div></div>
     </div>
