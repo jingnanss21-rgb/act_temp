@@ -54,7 +54,7 @@ async function loadPinAnalysis() {
     const [pinnedOps, waistQual, brandDaily, actDaily, notes] = await Promise.all([
       fetchAll('tem_pinned_ops', '*'),
       fetchAll('tem_waist_qualified', '*'),
-      fetchAll('tem_brand_daily', 'brand_id,brand_name,category_l4,w7_avg_txn_count,is_online_today,is_alive_w7,report_date,daily_exposure_pv,daily_claim_pv,daily_redeem_pv,daily_exposure_redeem_rate,w7_high_freq_rate_uv,w7_low_freq_rate_uv,w7_store_redeem_rate_uv', 'report_date.desc'),
+      fetchAll('tem_brand_daily', 'brand_id,brand_name,category_l2,category_l4,brand_tier,w7_avg_txn_count,is_online_today,is_alive_w7,report_date,daily_exposure_pv,daily_claim_pv,daily_redeem_pv,daily_exposure_redeem_rate,w7_high_freq_rate_uv,w7_low_freq_rate_uv,w7_store_redeem_rate_uv', 'report_date.desc'),
       fetchAll('tem_activity_daily', 'brand_id,activity_id,activity_name,report_date,exposure_uv,claim_uv,redeem_uv,store_redeem_rate_uv,exposure_pv,claim_pv,redeem_pv'),
       fetchAll('tem_pinned_notes', '*'),
     ]);
@@ -130,22 +130,21 @@ function classifyBrands() {
 
 // ============================================================
 // 存活率趋势（3条线：置顶 / 达标 / 全量腰部）
+// 置顶/达标：一次性判断的品牌集合，关联品牌日报by日判断在线和存活
+// 全量腰部：品牌日报中 category_l2='1-餐饮' AND brand_tier='2-腰部'
 // 分母 = 当日 is_online_today=1 的品牌数
 // 分子 = 其中 is_alive_w7=1 的品牌数
 // ============================================================
 function computeSurvivalTrend() {
   const pinnedIds = new Set(pinData.pinnedOps.map(p => String(p.brand_id)));
   const qualifiedIds = new Set();
-  const waistIds = new Set();
   for (const [bid, w] of Object.entries(pinData.waistQualified)) {
-    waistIds.add(bid);
     if (w.is_qualified === '达标') qualifiedIds.add(bid);
   }
 
   function isOnline(v) { return String(v).startsWith('1'); }
   function isAlive(v) { return String(v).startsWith('1'); }
 
-  // date → { group → { online: Set, alive: Set } }
   const dateMap = {};
   const groups = ['pinned', 'qualified', 'waist'];
 
@@ -159,7 +158,8 @@ function computeSurvivalTrend() {
     const belongs = [];
     if (pinnedIds.has(bid)) belongs.push('pinned');
     if (qualifiedIds.has(bid)) belongs.push('qualified');
-    if (waistIds.has(bid)) belongs.push('waist');
+    // 全量腰部：品牌日报中 category_l2=1-餐饮 且 brand_tier=2-腰部
+    if (String(b.category_l2) === '1-餐饮' && String(b.brand_tier) === '2-腰部') belongs.push('waist');
     if (belongs.length === 0) continue;
 
     if (!dateMap[d]) {
@@ -249,7 +249,7 @@ function renderPinAnalysis() {
               <button class="pin-period-btn ${pinData.survivalPeriod === '30d' ? 'active' : ''}" onclick="switchSurvivalPeriod('30d')">近30天</button>
             </div>
           </div>
-          <div class="pin-trend-meta-row">置顶 ${pinData.pinnedOps.length} · 达标 ${c.qualified_pinned.length + c.qualified_unpinned.length} · 腰部 ${Object.keys(pinData.waistQualified).length}</div>
+          <div class="pin-trend-meta-row">置顶 ${pinData.pinnedOps.length} · 达标 ${c.qualified_pinned.length + c.qualified_unpinned.length} · 腰部=餐饮×腰部分层</div>
           <div id="pin-trend-svg-container" class="pin-trend-svg">${renderSurvivalSVG(survival.pinned, survival.qualified, survival.waist)}</div>
         </div>
 
@@ -341,21 +341,18 @@ function renderEffectGrid() {
 
   // 二级分类：按流量涨幅
   const groups = [
-    { key: 'up', label: '🟢 流量上涨（≥20%）', color: '#16A34A', items: [] },
-    { key: 'flat', label: '🟡 流量平稳（-20%~20%）', color: '#D97706', items: [] },
-    { key: 'down', label: '🔴 流量下降（<-20%）', color: '#DC2626', items: [] },
+    { key: 'up', label: '🟢 流量上涨', color: '#16A34A', items: [] },
+    { key: 'down', label: '🔴 流量下降', color: '#DC2626', items: [] },
     { key: 'nodata', label: '⚪ 无基线', color: '#94A3B8', items: [] },
   ];
 
   for (const info of list) {
     if (info.exposure_change == null || info.avg_before === 0) {
-      groups[3].items.push(info);
-    } else if (info.exposure_change >= 0.2) {
-      groups[0].items.push(info);
-    } else if (info.exposure_change >= -0.2) {
-      groups[1].items.push(info);
-    } else {
       groups[2].items.push(info);
+    } else if (info.exposure_change >= 0) {
+      groups[0].items.push(info);
+    } else {
+      groups[1].items.push(info);
     }
   }
 
@@ -382,7 +379,7 @@ function renderEffectGrid() {
               <div class="pin-card-meta">周期${info.pin_period_days}天</div>
             </div>
             <div class="pin-card-metrics">
-              <div class="pin-card-metric"><span>日均曝光</span><b>${fmtPinNum(info.daily_avg_exposure)}</b></div>
+              <div class="pin-card-metric"><span>日均曝光</span><b>${fmtWan(info.daily_avg_exposure)}</b></div>
               <div class="pin-card-metric"><span>日均核销</span><b>${fmtPinNum(info.daily_avg_redeem)}</b></div>
             </div>
             <div class="pin-card-chart">${renderMiniExposureSVG(info.daily_series)}</div>
@@ -546,8 +543,8 @@ function openPinModal(bid) {
 
     <!-- 核心指标（日均） -->
     <div class="pin-modal-metrics">
-      <div class="pin-m-item"><div class="pin-m-label">日均交易笔数</div><div class="pin-m-val">${fmtPinNum(parseFloat(info.w7_avg_txn_count)) || '-'}</div></div>
-      <div class="pin-m-item"><div class="pin-m-label">日均曝光</div><div class="pin-m-val">${fmtPinNum(info.daily_avg_exposure)}</div></div>
+      <div class="pin-m-item"><div class="pin-m-label">日均交易笔数</div><div class="pin-m-val">${fmtWan(parseFloat(info.w7_avg_txn_count))}</div></div>
+      <div class="pin-m-item"><div class="pin-m-label">日均曝光</div><div class="pin-m-val">${fmtWan(info.daily_avg_exposure)}</div></div>
       <div class="pin-m-item"><div class="pin-m-label">日均核销</div><div class="pin-m-val">${fmtPinNum(info.daily_avg_redeem)}</div></div>
       <div class="pin-m-item"><div class="pin-m-label">曝光核销率</div><div class="pin-m-val">${fmtPinPct(info.exposure_redeem_rate)}</div></div>
       <div class="pin-m-item"><div class="pin-m-label">到店核销率</div><div class="pin-m-val">${info.store_redeem_rate != null ? fmtPinPct(info.store_redeem_rate) : '-'}</div></div>
@@ -556,7 +553,7 @@ function openPinModal(bid) {
     <!-- 诊断 -->
     <div class="pin-modal-diag" style="background:${info.diag_color}10;border-left:3px solid ${info.diag_color};color:${info.diag_color}">
       ${info.diag_label} · 置顶后曝光${info.exposure_change >= 0 ? '↑' : '↓'} ${Math.abs(changePct)}%
-      ${info.avg_before > 0 ? `(置顶前均值 ${fmtPinNum(info.avg_before)} → 置顶后均值 ${fmtPinNum(info.avg_after)})` : ''}
+      ${info.avg_before > 0 ? `(置顶前均值 ${fmtWan(info.avg_before)} → 置顶后均值 ${fmtWan(info.avg_after)})` : ''}
     </div>
 
     <!-- 趋势图 -->
@@ -1014,6 +1011,13 @@ function fmtPinNum(v) {
   if (v == null || isNaN(v)) return '-';
   if (v >= 10000) return (v / 10000).toFixed(1) + 'w';
   return Math.round(v).toLocaleString('zh-CN');
+}
+
+// 已经是万单位的字段（曝光PV、领取PV、日均交易笔数）
+function fmtWan(v) {
+  if (v == null || isNaN(v) || v === 0) return '-';
+  if (v >= 1) return v.toFixed(1) + 'w';
+  return (v * 10000).toFixed(0);
 }
 
 function fmtPinPct(v) {
