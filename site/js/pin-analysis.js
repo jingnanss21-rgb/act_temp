@@ -515,18 +515,24 @@ function renderQuadrantSVG(points, xThreshold, yThreshold) {
   const plotW = W - P - RIGHT, plotH = H - TOP - P;
 
   // 数据范围（对称，确保0在中间）
-  const xVals = points.map(p => p._qd.x);
-  const yVals = points.map(p => p._qd.y);
-  const xAbsMax = Math.max(Math.abs(Math.min(...xVals)), Math.abs(Math.max(...xVals)), 0.1) * 1.2;
-  const yAbsMax = Math.max(Math.abs(Math.min(...yVals)), Math.abs(Math.max(...yVals)), 0.1) * 1.2;
+  // 用 P5~P95 范围确定坐标轴，极端值 clamp 到边缘
+  const xVals = points.map(p => p._qd.x).sort((a,b) => a-b);
+  const yVals = points.map(p => p._qd.y).sort((a,b) => a-b);
+  function percentile(arr, p) { return arr[Math.max(0, Math.min(arr.length-1, Math.round(arr.length * p)))]; }
+  const xP5 = percentile(xVals, 0.05), xP95 = percentile(xVals, 0.95);
+  const yP5 = percentile(yVals, 0.05), yP95 = percentile(yVals, 0.95);
+  // 确保0在范围内，对称扩展
+  const xAbsMax = Math.max(Math.abs(xP5), Math.abs(xP95), 0.1) * 1.15;
+  const yAbsMax = Math.max(Math.abs(yP5), Math.abs(yP95), 0.1) * 1.15;
   const xMin = -xAbsMax, xMax = xAbsMax;
   const yMin = -yAbsMax, yMax = yAbsMax;
 
+  function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
   function toSvgX(val) {
-    return P + ((val - xMin) / (xMax - xMin)) * plotW;
+    return P + ((clamp(val, xMin, xMax) - xMin) / (xMax - xMin)) * plotW;
   }
   function toSvgY(val) {
-    return TOP + plotH - ((val - yMin) / (yMax - yMin)) * plotH;
+    return TOP + plotH - ((clamp(val, yMin, yMax) - yMin) / (yMax - yMin)) * plotH;
   }
 
   // 象限背景
