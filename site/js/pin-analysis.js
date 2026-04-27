@@ -719,9 +719,11 @@ function renderSurvivalSVG(pinnedSeries, qualifiedSeries, waistSeries) {
       if (!p) return;
       const x = P + i * xStep;
       const y = H - P - (p.rate / maxRate) * (H - P - TOP);
-      dotsHTML += `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="2.5" fill="${line.color}">
-        <title>${line.label} ${p.date}: ${p.alive}/${p.total} (${(p.rate*100).toFixed(1)}%)</title>
+      // 透明大圆作为 hover 区域 + 可见小圆 + tooltip
+      dotsHTML += `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="10" fill="transparent" style="cursor:pointer">
+        <title>${line.label} ${p.date}: 存活${p.alive}/${p.total}在线 (${(p.rate*100).toFixed(1)}%)</title>
       </circle>`;
+      dotsHTML += `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="3" fill="${line.color}" pointer-events="none"/>`;
     });
   }
 
