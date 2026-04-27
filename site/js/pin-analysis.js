@@ -145,6 +145,15 @@ function computeSurvivalTrend() {
   function isOnline(v) { return String(v).startsWith('1'); }
   function isAlive(v) { return String(v).startsWith('1'); }
 
+  // 全量腰部：用品牌最新记录判断 category_l2='1-餐饮' AND brand_tier='2-腰部'
+  // brand_tier 不是每天都有值，所以用最新一条有值的记录来确定
+  const waistIds = new Set();
+  for (const [bid, latest] of Object.entries(pinData.brandDaily)) {
+    if (String(latest.category_l2) === '1-餐饮' && String(latest.brand_tier) === '2-腰部') {
+      waistIds.add(bid);
+    }
+  }
+
   const dateMap = {};
   const groups = ['pinned', 'qualified', 'waist'];
 
@@ -158,8 +167,7 @@ function computeSurvivalTrend() {
     const belongs = [];
     if (pinnedIds.has(bid)) belongs.push('pinned');
     if (qualifiedIds.has(bid)) belongs.push('qualified');
-    // 全量腰部：品牌日报中 category_l2=1-餐饮 且 brand_tier=2-腰部
-    if (String(b.category_l2) === '1-餐饮' && String(b.brand_tier) === '2-腰部') belongs.push('waist');
+    if (waistIds.has(bid)) belongs.push('waist');
     if (belongs.length === 0) continue;
 
     if (!dateMap[d]) {
