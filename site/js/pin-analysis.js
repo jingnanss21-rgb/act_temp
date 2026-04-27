@@ -54,7 +54,7 @@ async function loadPinAnalysis() {
     const [pinnedOps, waistQual, brandDaily, actDaily, notes] = await Promise.all([
       fetchAll('tem_pinned_ops', '*'),
       fetchAll('tem_waist_qualified', '*'),
-      fetchAll('tem_brand_daily', 'brand_id,brand_name,category_l2,category_l4,brand_tier,w7_avg_txn_count,is_online_today,is_alive_w7,report_date,daily_exposure_pv,daily_claim_pv,daily_redeem_pv,daily_exposure_redeem_rate,w7_high_freq_rate_uv,w7_low_freq_rate_uv,w7_store_redeem_rate_uv', 'report_date.desc'),
+      fetchAll('tem_brand_daily', 'brand_id,brand_name,category_l2,category_l4,brand_tier,w7_avg_txn_count,is_online_today,is_alive_w7,report_date,daily_exposure_pv,daily_claim_pv,daily_redeem_pv,daily_exposure_redeem_rate,daily_exposure_claim_rate,daily_claim_redeem_rate,w7_high_freq_rate_uv,w7_low_freq_rate_uv,w7_store_redeem_rate_uv,daily_exposure_pv_fixed,daily_exposure_pv_commercial,daily_exposure_pv_nearby,daily_exposure_pv_f2f,daily_exposure_pv_reward,daily_exposure_pv_other', 'report_date.desc'),
       fetchAll('tem_activity_daily', 'brand_id,activity_id,activity_name,report_date,exposure_uv,claim_uv,redeem_uv,store_redeem_rate_uv,exposure_pv,claim_pv,redeem_pv'),
       fetchAll('tem_pinned_notes', '*'),
     ]);
@@ -284,8 +284,8 @@ function renderPinAnalysis() {
       <div class="pin-section" style="margin-top:24px">
         <h3 class="pin-section-title">📌 品牌流量分析</h3>
         <div class="pin-formula-note">
-          流量涨幅 = (置顶后日均曝光PV - 置顶前日均曝光PV) / 置顶前日均曝光PV × 100%<br>
-          <span style="color:#94A3B8">前段 = 置顶日之前所有可用天数均值 · 后段 = 置顶日之后所有可用天数均值 · 存活 = 品牌日报近7日存活(is_alive_w7)</span>
+          <b>分组逻辑</b>：周期<7天→观察期 · 流量变化≥+5%为上涨/<-5%为下降 · 转化率变化<-5%为下降 · 单渠道≥70%为集中<br>
+          <span style="color:#94A3B8">流量 = 置顶前后日均曝光PV均值变化 · 转化 = 置顶前后曝光核销率均值变化 · 存活 = 品牌日报近7日存活(is_alive_w7)</span>
         </div>
 
         <div class="pin-effect-tabs">
@@ -324,6 +324,79 @@ function switchSurvivalPeriod(period) {
 }
 
 // ============================================================
+// 决策树分类
+// ============================================================
+const DT_THRESHOLDS = {
+  OBSERVATION_DAYS: 7,
+  FLOW_UP: 0.05,
+  FLOW_DOWN: -0.05,
+  CONV_DOWN: -0.05,
+  CHANNEL_CONCENTRATED: 0.70,
+};
+
+function classifyBrandDT(info) {
+  if (info.pin_period_days < DT_THRESHOLDS.OBSERVATION_DAYS) return 'observation';
+  if (info.avg_before === 0 || info.exposure_change == null) return 'no_baseline';
+
+  const flowUp = info.exposure_change >= DT_THRESHOLDS.FLOW_UP;
+  const flowDown = info.exposure_change < DT_THRESHOLDS.FLOW_DOWN;
+  const convDown = info.conversion_change != null && info.conversion_change < DT_THRESHOLDS.CONV_DOWN;
+
+  if (flowUp) return convDown ? 'flow_up_conv_down' : 'flow_up_conv_ok';
+  if (flowDown) return info.channel_concentrated ? 'flow_down_channel_risk' : 'flow_down_general';
+  // 平稳
+  return convDown ? 'flow_flat_conv_down' : 'flow_flat_ok';
+}
+
+const DT_GROUP_DEFS = [
+  { key: 'observation',            label: '🔵 观察期（<7天）',        color: '#3B82F6' },
+  { key: 'flow_up_conv_ok',       label: '🟢 流量↑ 转化正常',        color: '#16A34A' },
+  { key: 'flow_up_conv_down',     label: '🟡 流量↑ 转化↓',           color: '#EAB308' },
+  { key: 'flow_flat_ok',          label: '⚪ 流量平稳 · 转化正常',    color: '#64748B' },
+  { key: 'flow_flat_conv_down',   label: '🟠 流量平稳 · 转化↓',      color: '#EA580C' },
+  { key: 'flow_down_channel_risk',label: '🔴 流量↓ 渠道集中',        color: '#DC2626' },
+  { key: 'flow_down_general',     label: '🔴 流量↓ 综合下降',        color: '#DC2626' },
+  { key: 'no_baseline',           label: '⚪ 无基线数据',             color: '#94A3B8' },
+];
+
+const ADVICE_MAP = {
+  observation:            { alive: '暂不评估，等满7天后再看',            dead: '刚置顶不久，优先检查活动配置和券库存' },
+  flow_up_conv_ok:       { alive: '效果良好，保持置顶',                dead: '流量OK但不存活，排查券/活动/库存问题' },
+  flow_up_conv_down:     { alive: '转化恶化，检查券面额和活动质量',      dead: '流量虚高不转化，排查无效曝光和渠道质量' },
+  flow_flat_ok:          { alive: '置顶效果有限，考虑调整入口或活动',    dead: '置顶未起效且不存活，建议替换' },
+  flow_flat_conv_down:   { alive: '转化恶化，紧急排查活动质量',         dead: '双降信号，优先替换' },
+  flow_down_channel_risk:{ alive: '依赖单渠道且下降，需扩展渠道来源',    dead: '高风险：渠道+存活双问题，立即替换' },
+  flow_down_general:     { alive: '置顶无效，排查竞品/市场因素后考虑替换',dead: '流量和存活均下降，建议立即替换' },
+  no_baseline:           { alive: '缺少置顶前数据，关注后续趋势',       dead: '缺少基线，需人工核查品牌上线时间' },
+};
+
+const CH_NAMES = { fixed:'固定入口', commercial:'商业化', nearby:'周边', f2f:'面对面', reward:'奖励', other:'其他' };
+
+function renderDiagTags(info) {
+  if (info._dtLeaf === 'observation') {
+    return '<span class="pin-tag pin-tag-blue">⏱ 观察中</span>';
+  }
+  let tags = '';
+  // 流量
+  if (info.exposure_change != null && info.avg_before > 0) {
+    const pct = (info.exposure_change * 100).toFixed(0);
+    const cls = info.exposure_change >= 0.05 ? 'green' : info.exposure_change < -0.05 ? 'red' : 'gray';
+    tags += `<span class="pin-tag pin-tag-${cls}">流量${pct>=0?'+':''}${pct}%</span>`;
+  }
+  // 转化
+  if (info.conversion_change != null) {
+    const pct = (info.conversion_change * 100).toFixed(0);
+    const cls = info.conversion_change >= 0.05 ? 'green' : info.conversion_change < -0.05 ? 'red' : 'gray';
+    tags += `<span class="pin-tag pin-tag-${cls}">转化${pct>=0?'+':''}${pct}%</span>`;
+  }
+  // 渠道集中
+  if (info.channel_concentrated && info.main_channel) {
+    tags += `<span class="pin-tag pin-tag-red">📡${CH_NAMES[info.main_channel]||info.main_channel} ${(info.main_channel_share*100).toFixed(0)}%</span>`;
+  }
+  return tags || '<span class="pin-tag pin-tag-gray">-</span>';
+}
+
+// ============================================================
 // 渲染置顶效果卡片网格
 // ============================================================
 function renderEffectGrid() {
@@ -331,13 +404,11 @@ function renderEffectGrid() {
   if (!container) return;
 
   const pinnedBids = pinData.pinnedOps.map(p => String(p.brand_id));
-
-  const alive = [];
-  const dead = [];
+  const alive = [], dead = [];
   for (const bid of pinnedBids) {
     const info = computeBrandEffect(bid);
-    if (info.is_alive) alive.push(info);
-    else dead.push(info);
+    info._dtLeaf = classifyBrandDT(info);
+    if (info.is_alive) alive.push(info); else dead.push(info);
   }
 
   const elAlive = document.getElementById('pin-count-alive');
@@ -346,41 +417,43 @@ function renderEffectGrid() {
   if (elDead) elDead.textContent = `(${dead.length})`;
 
   const list = pinData.effectTab === 'alive' ? alive : dead;
+  const isAliveTab = pinData.effectTab === 'alive';
 
-  // 二级分类：按流量涨幅
-  const groups = [
-    { key: 'up', label: '🟢 流量上涨', color: '#16A34A', items: [] },
-    { key: 'down', label: '🔴 流量下降', color: '#DC2626', items: [] },
-    { key: 'nodata', label: '⚪ 无基线', color: '#94A3B8', items: [] },
-  ];
+  // 不存活Tab：红色组优先；存活Tab：绿色组优先
+  const orderedKeys = isAliveTab
+    ? ['flow_up_conv_ok','flow_up_conv_down','flow_flat_ok','flow_flat_conv_down','flow_down_general','flow_down_channel_risk','observation','no_baseline']
+    : ['flow_down_channel_risk','flow_down_general','flow_flat_conv_down','flow_flat_ok','flow_up_conv_down','flow_up_conv_ok','observation','no_baseline'];
 
-  for (const info of list) {
-    if (info.exposure_change == null || info.avg_before === 0) {
-      groups[2].items.push(info);
-    } else if (info.exposure_change >= 0) {
-      groups[0].items.push(info);
-    } else {
-      groups[1].items.push(info);
-    }
+  // 分桶
+  const groupMap = {};
+  for (const def of DT_GROUP_DEFS) groupMap[def.key] = [];
+  for (const info of list) groupMap[info._dtLeaf]?.push(info);
+
+  // 组内排序：按流量变化绝对值降序
+  for (const items of Object.values(groupMap)) {
+    items.sort((a, b) => Math.abs(b.exposure_change || 0) - Math.abs(a.exposure_change || 0));
   }
 
-  // 每组内按涨幅降序
-  for (const g of groups) {
-    g.items.sort((a, b) => (b.exposure_change || 0) - (a.exposure_change || 0));
-  }
+  const defMap = {};
+  for (const d of DT_GROUP_DEFS) defMap[d.key] = d;
 
   let html = '';
-  for (const g of groups) {
-    if (g.items.length === 0) continue;
-    html += `<div class="pin-flow-group">
-      <div class="pin-flow-group-header" style="border-left:3px solid ${g.color}">
-        ${g.label} <span class="pin-flow-group-count">${g.items.length}</span>
+  for (const key of orderedKeys) {
+    const items = groupMap[key];
+    if (!items || items.length === 0) continue;
+    const def = defMap[key];
+    const advice = ADVICE_MAP[key]?.[isAliveTab ? 'alive' : 'dead'] || '';
+
+    html += `<div class="pin-dt-group">
+      <div class="pin-dt-group-header" style="border-left:4px solid ${def.color}">
+        <div class="pin-dt-group-title">
+          ${def.label} <span class="pin-dt-count">${items.length}</span>
+        </div>
+        <div class="pin-dt-advice">${advice}</div>
       </div>
       <div class="pin-cards-grid">
-        ${g.items.map(info => {
-          const changePct = info.exposure_change != null ? (info.exposure_change * 100).toFixed(1) : null;
-          const changeColor = g.color;
-          const changeLabel = changePct == null ? '无基线' : `${changePct >= 0 ? '+' : ''}${changePct}%`;
+        ${items.map(info => {
+          const erRate = info.exposure_redeem_rate != null ? fmtPinPct(info.exposure_redeem_rate) : '-';
           return `<div class="pin-card" onclick="openPinModal('${info.brand_id}')">
             <div class="pin-card-head">
               <div class="pin-card-brand">${info.brand_name || info.brand_id}</div>
@@ -389,9 +462,10 @@ function renderEffectGrid() {
             <div class="pin-card-metrics">
               <div class="pin-card-metric"><span>日均曝光</span><b>${fmtWan(info.daily_avg_exposure)}</b></div>
               <div class="pin-card-metric"><span>日均核销</span><b>${fmtPinNum(info.daily_avg_redeem)}</b></div>
+              <div class="pin-card-metric"><span>曝光核销率</span><b>${erRate}</b></div>
             </div>
             <div class="pin-card-chart">${renderMiniExposureSVG(info.daily_series)}</div>
-            <div class="pin-card-diag" style="color:${changeColor}">流量 ${changeLabel}</div>
+            <div class="pin-card-tags">${renderDiagTags(info)}</div>
           </div>`;
         }).join('')}
       </div>
@@ -436,9 +510,18 @@ function computeBrandEffect(bid) {
       claim: parseFloat(b.daily_claim_pv) || 0,
       redeem: parseFloat(b.daily_redeem_pv) || 0,
       exp_redeem_rate: parseRate(b.daily_exposure_redeem_rate),
+      exp_claim_rate: parseRate(b.daily_exposure_claim_rate),
+      claim_redeem_rate: parseRate(b.daily_claim_redeem_rate),
       store_rate: parseRate(b.w7_store_redeem_rate_uv),
       high_freq: parseRate(b.w7_high_freq_rate_uv),
       low_freq: parseRate(b.w7_low_freq_rate_uv),
+      // 渠道
+      ch_fixed: parseFloat(b.daily_exposure_pv_fixed) || 0,
+      ch_commercial: parseFloat(b.daily_exposure_pv_commercial) || 0,
+      ch_nearby: parseFloat(b.daily_exposure_pv_nearby) || 0,
+      ch_f2f: parseFloat(b.daily_exposure_pv_f2f) || 0,
+      ch_reward: parseFloat(b.daily_exposure_pv_reward) || 0,
+      ch_other: parseFloat(b.daily_exposure_pv_other) || 0,
     };
   }
 
@@ -483,6 +566,36 @@ function computeBrandEffect(bid) {
   const avgAfter = after.length > 0 ? after.reduce((s,v)=>s+v,0) / after.length : 0;
   const exposureChange = avgBefore > 0 ? (avgAfter - avgBefore) / avgBefore : (avgAfter > 0 ? 1 : 0);
 
+  // 转化率变化（置顶前后曝光核销率均值对比）
+  const convBefore = [], convAfter = [];
+  for (const row of daily_series) {
+    if (!pinDt) continue;
+    if (row.exp_redeem_rate == null) continue;
+    if (new Date(row.date) < pinDt) convBefore.push(row.exp_redeem_rate);
+    else convAfter.push(row.exp_redeem_rate);
+  }
+  const convAvgBefore = convBefore.length > 0 ? convBefore.reduce((s,v)=>s+v,0) / convBefore.length : 0;
+  const convAvgAfter = convAfter.length > 0 ? convAfter.reduce((s,v)=>s+v,0) / convAfter.length : 0;
+  const conversionChange = convAvgBefore > 0 ? (convAvgAfter - convAvgBefore) / convAvgBefore : null;
+
+  // 渠道结构（置顶后各渠道曝光占比）
+  let chFixed=0, chComm=0, chNearby=0, chF2f=0, chReward=0, chOther=0;
+  for (const row of daily_series) {
+    if (pinDt && new Date(row.date) < pinDt) continue;
+    chFixed += row.ch_fixed || 0; chComm += row.ch_commercial || 0;
+    chNearby += row.ch_nearby || 0; chF2f += row.ch_f2f || 0;
+    chReward += row.ch_reward || 0; chOther += row.ch_other || 0;
+  }
+  const chTotal = chFixed + chComm + chNearby + chF2f + chReward + chOther;
+  const channel_shares = chTotal > 0 ? {
+    fixed: chFixed/chTotal, commercial: chComm/chTotal, nearby: chNearby/chTotal,
+    f2f: chF2f/chTotal, reward: chReward/chTotal, other: chOther/chTotal,
+  } : null;
+  const chEntries = channel_shares ? Object.entries(channel_shares).sort((a,b)=>b[1]-a[1]) : [];
+  const main_channel = chEntries[0]?.[0] || null;
+  const main_channel_share = chEntries[0]?.[1] || 0;
+  const channel_concentrated = main_channel_share >= 0.70;
+
   // 诊断
   let diag_label = '-', diag_color = '#94A3B8';
   if (before.length === 0) {
@@ -522,6 +635,9 @@ function computeBrandEffect(bid) {
     w7_avg_txn_count: bd.w7_avg_txn_count || '-',
     avg_before: avgBefore, avg_after: avgAfter,
     exposure_change: exposureChange,
+    conversion_change: conversionChange,
+    conv_avg_before: convAvgBefore, conv_avg_after: convAvgAfter,
+    channel_shares, main_channel, main_channel_share, channel_concentrated,
     diag_label, diag_color,
     daily_series,
   };
