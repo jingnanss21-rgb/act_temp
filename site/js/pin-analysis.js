@@ -53,7 +53,7 @@ async function loadPinAnalysis() {
     const [pinnedOps, waistQual, brandDaily, actDaily, notes] = await Promise.all([
       fetchAll('tem_pinned_ops', '*'),
       fetchAll('tem_waist_qualified', '*'),
-      fetchAll('tem_brand_daily', 'brand_id,brand_name,category_l4,w7_avg_txn_count,is_online_today,is_alive_w7,report_date', 'report_date.desc'),
+      fetchAll('tem_brand_daily', 'brand_id,brand_name,category_l4,w7_avg_txn_count,is_online_today,is_alive_w7,report_date,daily_exposure_pv,daily_claim_pv,daily_redeem_pv,w7_high_freq_rate_uv,w7_low_freq_rate_uv', 'report_date.desc'),
       fetchAll('tem_activity_daily', 'brand_id,activity_id,activity_name,report_date,exposure_uv,claim_uv,redeem_uv,store_redeem_rate_uv,exposure_pv,claim_pv,redeem_pv'),
       fetchAll('tem_pinned_notes', '*'),
     ]);
@@ -174,7 +174,7 @@ function computeSurvivalTrend() {
     }
   }
 
-  const dates = Object.keys(dateMap).sort();
+  const dates = Object.keys(dateMap).filter(d => d >= '2026-04-01').sort();
   function buildSeries(group) {
     return dates.map(d => {
       const onlineCount = dateMap[d][group].online.size;
@@ -261,16 +261,16 @@ function renderPinAnalysis() {
         </div>
       </div>
 
-      <!-- 第二部分：置顶品牌分析 -->
+      <!-- 第二部分：品牌流量分析 -->
       <div class="pin-section" style="margin-top:24px">
-        <h3 class="pin-section-title">📌 置顶品牌分析</h3>
+        <h3 class="pin-section-title">📌 品牌流量分析</h3>
 
         <div class="pin-effect-tabs">
           <button class="pin-effect-tab ${pinData.effectTab === 'effective' ? 'active' : ''}" onclick="switchPinEffectTab('effective')">
-            ✅ 置顶有效 <span id="pin-count-effective"></span>
+            ✅ 流量有效 <span id="pin-count-effective"></span>
           </button>
           <button class="pin-effect-tab ${pinData.effectTab === 'ineffective' ? 'active' : ''}" onclick="switchPinEffectTab('ineffective')">
-            ❌ 置顶无效 <span id="pin-count-ineffective"></span>
+            ❌ 流量无效 <span id="pin-count-ineffective"></span>
           </button>
         </div>
 
@@ -303,7 +303,7 @@ function renderEffectGrid() {
   const ineffective = [];
   for (const bid of pinnedBids) {
     const info = computeBrandEffect(bid);
-    if (info.is_alive) {
+    if (info.is_effective) {
       effective.push(info);
     } else {
       ineffective.push(info);
@@ -327,7 +327,7 @@ function renderEffectGrid() {
     return `<div class="pin-card" onclick="openPinModal('${info.brand_id}')">
       <div class="pin-card-head">
         <div class="pin-card-brand">${info.brand_name || info.brand_id}</div>
-        <div class="pin-card-meta">置顶${info.pin_period_days}天</div>
+        <div class="pin-card-meta">周期${info.pin_period_days}天</div>
       </div>
       <div class="pin-card-metrics">
         <div class="pin-card-metric"><span>曝光</span><b>${fmtPinNum(info.total_exposure)}</b></div>
@@ -350,12 +350,12 @@ function switchPinEffectTab(tab) {
 
 // ============================================================
 // 品牌效果计算（核心）
+// 数据源：brandDailyAll（品牌日报全量含3月，有置顶前数据）
 // ============================================================
 function computeBrandEffect(bid) {
   const op = pinData.pinnedOps.find(p => String(p.brand_id) === bid);
   const w = pinData.waistQualified[bid] || {};
   const bd = pinData.brandDaily[bid] || {};
-  const acts = pinData.activityDaily[bid] || [];
 
   const pinDate = op ? op.pin_date : null;
   const today = new Date();
@@ -364,28 +364,39 @@ function computeBrandEffect(bid) {
   if (pinDt) pinDt.setHours(0,0,0,0);
   const pinPeriodDays = pinDt ? Math.max(1, Math.round((today - pinDt) / 86400000)) : 0;
 
-  // 按日期聚合（多活动加和）
-  const dailyMap = {}; // date → {exposure_uv, claim_uv, redeem_uv}
+  // 从 brandDailyAll 取该品牌全部日报数据
+  const brandRows = pinData.brandDailyAll.filter(b => String(b.brand_id) === bid);
+  const dailyMap = {}; // date → {exposure, claim, redeem, high_freq, low_freq}
+  for (const b of brandRows) {
+    const d = b.report_date;
+    if (!d) continue;
+    dailyMap[d] = {
+      exposure: parseFloat(b.daily_exposure_pv) || 0,
+      claim: parseFloat(b.daily_claim_pv) || 0,
+      redeem: parseFloat(b.daily_redeem_pv) || 0,
+      high_freq: parseFloat(b.w7_high_freq_rate_uv) || null,
+      low_freq: parseFloat(b.w7_low_freq_rate_uv) || null,
+    };
+  }
+
+  // 补充活动日表的 store_rate（品牌日报没有这个）
+  const acts = pinData.activityDaily[bid] || [];
+  const storeRateMap = {};
   for (const a of acts) {
     const d = a.report_date;
-    if (!d) continue;
-    if (!dailyMap[d]) dailyMap[d] = {exposure_uv:0, claim_uv:0, redeem_uv:0, store_rate:null};
-    dailyMap[d].exposure_uv += (a.exposure_uv || 0);
-    dailyMap[d].claim_uv += (a.claim_uv || 0);
-    dailyMap[d].redeem_uv += (a.redeem_uv || 0);
-    // store_rate 取第一个有值的
-    if (dailyMap[d].store_rate === null && a.store_redeem_rate_uv) {
-      dailyMap[d].store_rate = a.store_redeem_rate_uv;
-    }
+    if (!d || storeRateMap[d]) continue;
+    if (a.store_redeem_rate_uv) storeRateMap[d] = parseFloat(a.store_redeem_rate_uv);
   }
 
   const dates = Object.keys(dailyMap).sort();
   const daily_series = dates.map(d => ({
     date: d,
-    exposure: dailyMap[d].exposure_uv,
-    claim: dailyMap[d].claim_uv,
-    redeem: dailyMap[d].redeem_uv,
-    store_rate: dailyMap[d].store_rate,
+    exposure: dailyMap[d].exposure,
+    claim: dailyMap[d].claim,
+    redeem: dailyMap[d].redeem,
+    store_rate: storeRateMap[d] || null,
+    high_freq: dailyMap[d].high_freq,
+    low_freq: dailyMap[d].low_freq,
   }));
 
   // 置顶周期累计
@@ -393,23 +404,20 @@ function computeBrandEffect(bid) {
   const weightedStore = {sum:0, den:0};
   let alive_days = 0, data_days = 0;
   for (const row of daily_series) {
-    if (pinDt && new Date(row.date) < pinDt) continue;  // 只算置顶后
+    if (pinDt && new Date(row.date) < pinDt) continue;
     total_exposure += row.exposure;
     total_claim += row.claim;
     total_redeem += row.redeem;
-    if (row.store_rate != null && !isNaN(parseFloat(row.store_rate))) {
-      const sr = parseFloat(row.store_rate);
-      if (sr > 0 && row.redeem > 0) {
-        weightedStore.sum += sr * row.redeem;
-        weightedStore.den += row.redeem;
-      }
+    if (row.store_rate != null && !isNaN(row.store_rate) && row.store_rate > 0 && row.redeem > 0) {
+      weightedStore.sum += row.store_rate * row.redeem;
+      weightedStore.den += row.redeem;
     }
     data_days++;
     if (row.exposure > 0 || row.redeem > 0) alive_days++;
   }
   const store_redeem_rate = weightedStore.den > 0 ? weightedStore.sum / weightedStore.den : null;
 
-  // 置顶前后均值对比
+  // 置顶前后均值对比（曝光）
   const before = [], after = [];
   for (const row of daily_series) {
     if (!pinDt) continue;
@@ -443,25 +451,18 @@ function computeBrandEffect(bid) {
     operating_sp: w.operating_sp || '-',
     pin_date: pinDate,
     pin_period_days: pinPeriodDays,
-    is_alive: alive_days > 0,
-    alive_days: alive_days,
-    data_days: data_days,
-    // 累计
+    is_effective: before.length > 0 && exposureChange >= 0.2,
+    alive_days, data_days,
     total_exposure, total_claim, total_redeem,
     exposure_claim_rate: total_exposure > 0 ? total_claim / total_exposure : 0,
     claim_redeem_rate: total_claim > 0 ? total_redeem / total_claim : 0,
     exposure_redeem_rate: total_exposure > 0 ? total_redeem / total_exposure : 0,
     store_redeem_rate,
-    // 日均
     daily_exposure_avg: data_days > 0 ? total_exposure / data_days : 0,
-    // 日均交易笔数
     w7_avg_txn_count: bd.w7_avg_txn_count || '-',
-    // 诊断
-    avg_before: avgBefore,
-    avg_after: avgAfter,
+    avg_before: avgBefore, avg_after: avgAfter,
     exposure_change: exposureChange,
     diag_label, diag_color,
-    // 序列
     daily_series,
   };
 }
@@ -483,7 +484,7 @@ function openPinModal(bid) {
     <div class="pin-modal-header">
       <div>
         <div class="pin-modal-title">${info.brand_name} <span class="pin-modal-cat">${info.category}</span></div>
-        <div class="pin-modal-sub">置顶日 ${info.pin_date || '-'} · 周期 ${info.pin_period_days}天 · ${info.is_alive ? '✅ 存活' : '❌ 未存活'}</div>
+        <div class="pin-modal-sub">置顶日 ${info.pin_date || '-'} · 周期 ${info.pin_period_days}天 · ${info.is_effective ? '✅ 流量有效' : '❌ 流量无效'}</div>
       </div>
       <button class="pin-modal-close" onclick="closePinModal()">✕</button>
     </div>
@@ -508,10 +509,12 @@ function openPinModal(bid) {
       <div class="pin-chart-header">
         <span>📈 品牌趋势（最近30天）</span>
         <select id="pin-chart-metric" onchange="updatePinChart()">
-          <option value="exposure">曝光UV</option>
-          <option value="redeem">核销UV</option>
-          <option value="claim">领取UV</option>
+          <option value="exposure">曝光PV</option>
+          <option value="redeem">核销PV</option>
+          <option value="claim">领取PV</option>
           <option value="store_rate">到店核销率</option>
+          <option value="high_freq">高频应曝尽曝率</option>
+          <option value="low_freq">低频应曝尽曝率</option>
         </select>
       </div>
       <div id="pin-chart-svg" class="pin-chart-svg"></div>
@@ -551,11 +554,12 @@ function updatePinChart() {
   if (!pinCurrentModalBrand) return;
   const info = computeBrandEffect(pinCurrentModalBrand);
   const metric = document.getElementById('pin-chart-metric').value;
+  const isRate = ['store_rate', 'high_freq', 'low_freq'].includes(metric);
   const series = info.daily_series.map(r => ({
     date: r.date,
-    value: metric === 'store_rate' ? (r.store_rate ? parseFloat(r.store_rate) : null) : r[metric]
+    value: isRate ? (r[metric] != null ? parseFloat(r[metric]) : null) : (r[metric] || 0)
   }));
-  document.getElementById('pin-chart-svg').innerHTML = renderBigChartSVG(series, info.pin_date, metric === 'store_rate');
+  document.getElementById('pin-chart-svg').innerHTML = renderBigChartSVG(series, info.pin_date, isRate);
 }
 
 function togglePinActs() {
