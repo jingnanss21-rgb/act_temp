@@ -22,7 +22,7 @@ let pinData = {
     qualified_unpinned: [],
     unqualified_pinned: [],
   },
-  effectTab: 'eff_alive',  // 'eff_alive' | 'eff_dead' | 'ineff_alive' | 'ineff_dead'
+  effectTab: 'alive',  // 'alive' | 'dead'
 };
 
 let pinMetricsCache = {};  // brand_id → {daily_exposure_avg, daily_claim_avg, ...}
@@ -277,17 +277,11 @@ function renderPinAnalysis() {
         <h3 class="pin-section-title">📌 品牌流量分析</h3>
 
         <div class="pin-effect-tabs">
-          <button class="pin-effect-tab ${pinData.effectTab === 'eff_alive' ? 'active' : ''}" onclick="switchPinEffectTab('eff_alive')">
-            ✅ 流量有效+存活 <span id="pin-count-eff_alive"></span>
+          <button class="pin-effect-tab ${pinData.effectTab === 'alive' ? 'active' : ''}" onclick="switchPinEffectTab('alive')">
+            ✅ 存活 <span id="pin-count-alive"></span>
           </button>
-          <button class="pin-effect-tab ${pinData.effectTab === 'eff_dead' ? 'active' : ''}" onclick="switchPinEffectTab('eff_dead')">
-            ⚠️ 流量有效+不存活 <span id="pin-count-eff_dead"></span>
-          </button>
-          <button class="pin-effect-tab ${pinData.effectTab === 'ineff_alive' ? 'active' : ''}" onclick="switchPinEffectTab('ineff_alive')">
-            🟡 流量无效+存活 <span id="pin-count-ineff_alive"></span>
-          </button>
-          <button class="pin-effect-tab ${pinData.effectTab === 'ineff_dead' ? 'active' : ''}" onclick="switchPinEffectTab('ineff_dead')">
-            ❌ 流量无效+不存活 <span id="pin-count-ineff_dead"></span>
+          <button class="pin-effect-tab ${pinData.effectTab === 'dead' ? 'active' : ''}" onclick="switchPinEffectTab('dead')">
+            ❌ 不存活 <span id="pin-count-dead"></span>
           </button>
         </div>
 
@@ -326,23 +320,23 @@ function renderEffectGrid() {
 
   const pinnedBids = pinData.pinnedOps.map(p => String(p.brand_id));
 
-  const groups = { eff_alive: [], eff_dead: [], ineff_alive: [], ineff_dead: [] };
+  const alive = [];
+  const dead = [];
   for (const bid of pinnedBids) {
     const info = computeBrandEffect(bid);
-    if (info.is_effective && info.is_alive) groups.eff_alive.push(info);
-    else if (info.is_effective && !info.is_alive) groups.eff_dead.push(info);
-    else if (!info.is_effective && info.is_alive) groups.ineff_alive.push(info);
-    else groups.ineff_dead.push(info);
+    if (info.is_alive) alive.push(info);
+    else dead.push(info);
   }
 
   // 更新计数
-  for (const key of Object.keys(groups)) {
-    const el = document.getElementById(`pin-count-${key}`);
-    if (el) el.textContent = groups[key].length;
-  }
+  const elAlive = document.getElementById('pin-count-alive');
+  const elDead = document.getElementById('pin-count-dead');
+  if (elAlive) elAlive.textContent = alive.length;
+  if (elDead) elDead.textContent = dead.length;
 
-  const list = groups[pinData.effectTab] || [];
-  list.sort((a, b) => (b.pin_period_days || 0) - (a.pin_period_days || 0));
+  const list = pinData.effectTab === 'alive' ? alive : dead;
+  // 排序：存活在前已由 tab 保证，组内按流量涨幅降序
+  list.sort((a, b) => (b.exposure_change || 0) - (a.exposure_change || 0));
 
   if (list.length === 0) {
     grid.innerHTML = '<div class="pin-empty">暂无品牌</div>';
@@ -350,8 +344,9 @@ function renderEffectGrid() {
   }
 
   grid.innerHTML = list.map(info => {
-    const diagColor = info.diag_color || '#94A3B8';
-    const diagLabel = info.diag_label || '-';
+    const changePct = info.exposure_change != null ? (info.exposure_change * 100).toFixed(1) : null;
+    const changeColor = changePct == null ? '#94A3B8' : (changePct >= 20 ? '#16A34A' : (changePct >= -20 ? '#D97706' : '#DC2626'));
+    const changeLabel = changePct == null ? '无基线' : `${changePct >= 0 ? '+' : ''}${changePct}%`;
     return `<div class="pin-card" onclick="openPinModal('${info.brand_id}')">
       <div class="pin-card-head">
         <div class="pin-card-brand">${info.brand_name || info.brand_id}</div>
@@ -362,7 +357,7 @@ function renderEffectGrid() {
         <div class="pin-card-metric"><span>日均核销</span><b>${fmtPinNum(info.daily_avg_redeem)}</b></div>
       </div>
       <div class="pin-card-chart">${renderMiniExposureSVG(info.daily_series)}</div>
-      <div class="pin-card-diag" style="color:${diagColor}">${diagLabel}</div>
+      <div class="pin-card-diag" style="color:${changeColor}">流量 ${changeLabel}</div>
     </div>`;
   }).join('');
 }
