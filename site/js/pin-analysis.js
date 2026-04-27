@@ -490,21 +490,19 @@ function renderEffectGrid() {
 }
 
 function renderBrandCard(info) {
-  const erRate = info.exposure_redeem_rate != null ? fmtPinPct(info.exposure_redeem_rate) : '-';
   const xVal = info._qd ? `${info._qd.x >= 0 ? '+' : ''}${(info._qd.x * 100).toFixed(0)}%` : '-';
   const yVal = info._qd ? `${info._qd.y >= 0 ? '+' : ''}${(info._qd.y * 100).toFixed(0)}%` : '-';
+  const xColor = info._qd && info._qd.x >= 0 ? '#16A34A' : '#DC2626';
+  const yColor = info._qd && info._qd.y >= 0 ? '#16A34A' : '#DC2626';
   return `<div class="pin-card" onclick="openPinModal('${info.brand_id}')">
     <div class="pin-card-head">
       <div class="pin-card-brand">${info.brand_name || info.brand_id}</div>
       <div class="pin-card-meta">周期${info.pin_period_days}天</div>
     </div>
-    <div class="pin-card-metrics">
-      <div class="pin-card-metric"><span>日均曝光</span><b>${fmtWan(info.daily_avg_exposure)}</b></div>
-      <div class="pin-card-metric"><span>日均核销</span><b>${fmtPinNum(info.daily_avg_redeem)}</b></div>
-      <div class="pin-card-metric"><span>曝光环比</span><b style="color:${info._qd && info._qd.x>=0?'#16A34A':'#DC2626'}">${xVal}</b></div>
-      <div class="pin-card-metric"><span>转化环比</span><b style="color:${info._qd && info._qd.y>=0?'#16A34A':'#DC2626'}">${yVal}</b></div>
+    <div class="pin-card-tags">
+      <span class="pin-tag" style="color:${xColor};background:${xColor}10">流量 ${xVal}</span>
+      <span class="pin-tag" style="color:${yColor};background:${yColor}10">转化 ${yVal}</span>
     </div>
-    <div class="pin-card-tags">${renderDiagTags(info)}</div>
   </div>`;
 }
 
