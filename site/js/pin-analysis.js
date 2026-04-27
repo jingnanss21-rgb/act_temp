@@ -280,16 +280,16 @@ function renderPinAnalysis() {
           <span style="color:#94A3B8">前段 = 置顶日之前所有可用天数均值 · 后段 = 置顶日之后所有可用天数均值 · 存活 = 品牌日报近7日存活(is_alive_w7)</span>
         </div>
 
-        <div class="pin-dual-grid">
-          <div class="pin-dual-col">
-            <div class="pin-dual-header pin-dual-alive">✅ 存活 <span id="pin-count-alive"></span></div>
-            <div id="pin-cards-alive" class="pin-cards-grid"></div>
-          </div>
-          <div class="pin-dual-col">
-            <div class="pin-dual-header pin-dual-dead">❌ 不存活 <span id="pin-count-dead"></span></div>
-            <div id="pin-cards-dead" class="pin-cards-grid"></div>
-          </div>
+        <div class="pin-effect-tabs">
+          <button class="pin-effect-tab ${pinData.effectTab === 'alive' ? 'active' : ''}" onclick="switchPinEffectTab('alive')">
+            ✅ 存活 <span id="pin-count-alive"></span>
+          </button>
+          <button class="pin-effect-tab ${pinData.effectTab === 'dead' ? 'active' : ''}" onclick="switchPinEffectTab('dead')">
+            ❌ 不存活 <span id="pin-count-dead"></span>
+          </button>
         </div>
+
+        <div id="pin-cards-container"></div>
       </div>
     </div>
 
@@ -319,9 +319,8 @@ function switchSurvivalPeriod(period) {
 // 渲染置顶效果卡片网格
 // ============================================================
 function renderEffectGrid() {
-  const gridAlive = document.getElementById('pin-cards-alive');
-  const gridDead = document.getElementById('pin-cards-dead');
-  if (!gridAlive || !gridDead) return;
+  const container = document.getElementById('pin-cards-container');
+  if (!container) return;
 
   const pinnedBids = pinData.pinnedOps.map(p => String(p.brand_id));
 
@@ -333,43 +332,76 @@ function renderEffectGrid() {
     else dead.push(info);
   }
 
-  // 更新计数
   const elAlive = document.getElementById('pin-count-alive');
   const elDead = document.getElementById('pin-count-dead');
   if (elAlive) elAlive.textContent = `(${alive.length})`;
   if (elDead) elDead.textContent = `(${dead.length})`;
 
-  // 排序：流量涨幅降序
-  alive.sort((a, b) => (b.exposure_change || 0) - (a.exposure_change || 0));
-  dead.sort((a, b) => (b.exposure_change || 0) - (a.exposure_change || 0));
+  const list = pinData.effectTab === 'alive' ? alive : dead;
 
-  function renderCards(list) {
-    if (list.length === 0) return '<div class="pin-empty">暂无品牌</div>';
-    return list.map(info => {
-      const changePct = info.exposure_change != null ? (info.exposure_change * 100).toFixed(1) : null;
-      const changeColor = changePct == null ? '#94A3B8' : (changePct >= 20 ? '#16A34A' : (changePct >= -20 ? '#D97706' : '#DC2626'));
-      const changeLabel = changePct == null ? '无基线' : `${changePct >= 0 ? '+' : ''}${changePct}%`;
-      return `<div class="pin-card" onclick="openPinModal('${info.brand_id}')">
-        <div class="pin-card-head">
-          <div class="pin-card-brand">${info.brand_name || info.brand_id}</div>
-          <div class="pin-card-meta">周期${info.pin_period_days}天</div>
-        </div>
-        <div class="pin-card-metrics">
-          <div class="pin-card-metric"><span>日均曝光</span><b>${fmtPinNum(info.daily_avg_exposure)}</b></div>
-          <div class="pin-card-metric"><span>日均核销</span><b>${fmtPinNum(info.daily_avg_redeem)}</b></div>
-        </div>
-        <div class="pin-card-chart">${renderMiniExposureSVG(info.daily_series)}</div>
-        <div class="pin-card-diag" style="color:${changeColor}">流量 ${changeLabel}</div>
-      </div>`;
-    }).join('');
+  // 二级分类：按流量涨幅
+  const groups = [
+    { key: 'up', label: '🟢 流量上涨（≥20%）', color: '#16A34A', items: [] },
+    { key: 'flat', label: '🟡 流量平稳（-20%~20%）', color: '#D97706', items: [] },
+    { key: 'down', label: '🔴 流量下降（<-20%）', color: '#DC2626', items: [] },
+    { key: 'nodata', label: '⚪ 无基线', color: '#94A3B8', items: [] },
+  ];
+
+  for (const info of list) {
+    if (info.exposure_change == null || info.avg_before === 0) {
+      groups[3].items.push(info);
+    } else if (info.exposure_change >= 0.2) {
+      groups[0].items.push(info);
+    } else if (info.exposure_change >= -0.2) {
+      groups[1].items.push(info);
+    } else {
+      groups[2].items.push(info);
+    }
   }
 
-  gridAlive.innerHTML = renderCards(alive);
-  gridDead.innerHTML = renderCards(dead);
+  // 每组内按涨幅降序
+  for (const g of groups) {
+    g.items.sort((a, b) => (b.exposure_change || 0) - (a.exposure_change || 0));
+  }
+
+  let html = '';
+  for (const g of groups) {
+    if (g.items.length === 0) continue;
+    html += `<div class="pin-flow-group">
+      <div class="pin-flow-group-header" style="border-left:3px solid ${g.color}">
+        ${g.label} <span class="pin-flow-group-count">${g.items.length}</span>
+      </div>
+      <div class="pin-cards-grid">
+        ${g.items.map(info => {
+          const changePct = info.exposure_change != null ? (info.exposure_change * 100).toFixed(1) : null;
+          const changeColor = g.color;
+          const changeLabel = changePct == null ? '无基线' : `${changePct >= 0 ? '+' : ''}${changePct}%`;
+          return `<div class="pin-card" onclick="openPinModal('${info.brand_id}')">
+            <div class="pin-card-head">
+              <div class="pin-card-brand">${info.brand_name || info.brand_id}</div>
+              <div class="pin-card-meta">周期${info.pin_period_days}天</div>
+            </div>
+            <div class="pin-card-metrics">
+              <div class="pin-card-metric"><span>日均曝光</span><b>${fmtPinNum(info.daily_avg_exposure)}</b></div>
+              <div class="pin-card-metric"><span>日均核销</span><b>${fmtPinNum(info.daily_avg_redeem)}</b></div>
+            </div>
+            <div class="pin-card-chart">${renderMiniExposureSVG(info.daily_series)}</div>
+            <div class="pin-card-diag" style="color:${changeColor}">流量 ${changeLabel}</div>
+          </div>`;
+        }).join('')}
+      </div>
+    </div>`;
+  }
+
+  container.innerHTML = html || '<div class="pin-empty">暂无品牌</div>';
 }
 
 function switchPinEffectTab(tab) {
-  // no longer needed but keep for compatibility
+  pinData.effectTab = tab;
+  document.querySelectorAll('.pin-effect-tab').forEach(b => {
+    b.classList.toggle('active', b.getAttribute('onclick').includes(`'${tab}'`));
+  });
+  renderEffectGrid();
 }
 
 // ============================================================

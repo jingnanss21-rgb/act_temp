@@ -2180,19 +2180,12 @@ body {
   padding: 10px 14px; background: #F8FAFC; border-radius: 6px; border: 1px solid #E2E8F0;
   line-height: 1.6;
 }
-.pin-dual-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 20px;
+.pin-flow-group { margin-bottom: 20px; }
+.pin-flow-group-header {
+  font-size: 13px; font-weight: 600; padding: 8px 12px; margin-bottom: 10px;
+  background: #F8FAFC; border-radius: 4px;
 }
-@media (max-width: 900px) { .pin-dual-grid { grid-template-columns: 1fr; } }
-.pin-dual-col { min-width: 0; }
-.pin-dual-header {
-  font-size: 14px; font-weight: 600; margin-bottom: 12px; padding: 8px 12px;
-  border-radius: 6px;
-}
-.pin-dual-alive { background: #F0FDF4; color: #16A34A; }
-.pin-dual-dead { background: #FEF2F2; color: #DC2626; }
+.pin-flow-group-count { font-weight: 400; color: #94A3B8; margin-left: 4px; }
 
 /* effect tabs (legacy, keep for compat) */
 .pin-effect-tabs {
