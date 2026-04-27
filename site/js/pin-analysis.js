@@ -54,7 +54,7 @@ async function loadPinAnalysis() {
     const [pinnedOps, waistQual, brandDaily, actDaily, notes] = await Promise.all([
       fetchAll('tem_pinned_ops', '*'),
       fetchAll('tem_waist_qualified', '*'),
-      fetchAll('tem_brand_daily', 'brand_id,brand_name,category_l2,category_l4,brand_tier,w7_avg_txn_count,is_online_today,is_alive_w7,report_date,daily_exposure_pv,daily_claim_pv,daily_redeem_pv,daily_exposure_redeem_rate,daily_exposure_claim_rate,daily_claim_redeem_rate,w7_high_freq_rate_uv,w7_low_freq_rate_uv,w7_store_redeem_rate_uv,daily_exposure_pv_fixed,daily_exposure_pv_commercial,daily_exposure_pv_nearby,daily_exposure_pv_f2f,daily_exposure_pv_reward,daily_exposure_pv_other', 'report_date.desc'),
+      fetchAll('tem_brand_daily', 'brand_id,brand_name,category_l2,category_l4,brand_tier,w7_avg_txn_count,is_online_today,is_alive_w7,report_date,daily_exposure_pv,daily_claim_pv,daily_redeem_pv,daily_exposure_redeem_rate,daily_exposure_claim_rate,daily_claim_redeem_rate,w7_high_freq_rate_uv,w7_low_freq_rate_uv,w7_high_freq_exposure_uv,w7_low_freq_exposure_uv,w7_store_redeem_rate_uv,daily_exposure_pv_fixed,daily_exposure_pv_commercial,daily_exposure_pv_nearby,daily_exposure_pv_f2f,daily_exposure_pv_reward,daily_exposure_pv_other', 'report_date.desc'),
       fetchAll('tem_activity_daily', 'brand_id,activity_id,activity_name,report_date,exposure_uv,claim_uv,redeem_uv,store_redeem_rate_uv,exposure_pv,claim_pv,redeem_pv'),
       fetchAll('tem_pinned_notes', '*'),
     ]);
@@ -70,9 +70,13 @@ async function loadPinAnalysis() {
     // brandDaily: 保留全量用于趋势，同时建 brand_id → latest 索引
     pinData.brandDailyAll = brandDaily;
     pinData.brandDaily = {};
+    // brand_id+date 索引（用于象限图取特定日期数据）
+    pinData.brandDailyByDate = {};
     for (const b of brandDaily) {
       const bid = String(b.brand_id);
       if (!pinData.brandDaily[bid]) pinData.brandDaily[bid] = b;
+      const key = bid + '|' + b.report_date;
+      pinData.brandDailyByDate[key] = b;
     }
 
     // activityDaily: 按 brand_id 分组
@@ -284,8 +288,8 @@ function renderPinAnalysis() {
       <div class="pin-section" style="margin-top:24px">
         <h3 class="pin-section-title">📌 品牌流量分析</h3>
         <div class="pin-formula-note">
-          <b>分组逻辑</b>：周期<7天→观察期 · 流量变化≥+5%为上涨/<-5%为下降 · 转化变化<-5%为下降 · 渠道≥70%标集中<br>
-          <span style="color:#94A3B8">流量 = 置顶前后日均曝光PV均值变化 · 转化 = 置顶前后曝光核销率均值变化 · 渠道集中=附加标签</span>
+          <b>象限</b>：X轴 = 老客曝光比例(高低频尽曝UV之和/日均交易笔数，数据取0420) · Y轴 = 曝光核销率(0420)<br>
+          <span style="color:#94A3B8">Y轴分界=1% · X轴分界=当前Tab中位数 · 点击象限区域/品牌点可筛选下方卡片</span>
         </div>
 
         <div class="pin-effect-tabs">
@@ -297,6 +301,7 @@ function renderPinAnalysis() {
           </button>
         </div>
 
+        <div id="pin-quadrant-container"></div>
         <div id="pin-cards-container"></div>
       </div>
     </div>
@@ -397,17 +402,33 @@ function renderDiagTags(info) {
 }
 
 // ============================================================
-// 渲染置顶效果卡片网格
+// 象限图 + 品牌卡片
 // ============================================================
+const QUADRANT_DATE = '2026-04-20'; // 高低频数据最新可用日期
+let pinQuadrantFilter = null; // null=全部, 'Q1'|'Q2'|'Q3'|'Q4'
+
+function getBrandQuadrantData(bid) {
+  const row = pinData.brandDailyByDate[bid + '|' + QUADRANT_DATE];
+  if (!row) return null;
+  const hf = parseFloat(row.w7_high_freq_exposure_uv);
+  const lf = parseFloat(row.w7_low_freq_exposure_uv);
+  const txn = parseFloat(row.w7_avg_txn_count);
+  const er = parseFloat(row.daily_exposure_redeem_rate);
+  if (isNaN(hf) || isNaN(lf) || isNaN(txn) || txn <= 0 || isNaN(er)) return null;
+  return { x: (hf + lf) / txn, y: er, hf, lf, txn, er };
+}
+
 function renderEffectGrid() {
-  const container = document.getElementById('pin-cards-container');
-  if (!container) return;
+  const qContainer = document.getElementById('pin-quadrant-container');
+  const cContainer = document.getElementById('pin-cards-container');
+  if (!qContainer || !cContainer) return;
 
   const pinnedBids = pinData.pinnedOps.map(p => String(p.brand_id));
   const alive = [], dead = [];
   for (const bid of pinnedBids) {
     const info = computeBrandEffect(bid);
     info._dtLeaf = classifyBrandDT(info);
+    info._qd = getBrandQuadrantData(bid);
     if (info.is_alive) alive.push(info); else dead.push(info);
   }
 
@@ -417,63 +438,200 @@ function renderEffectGrid() {
   if (elDead) elDead.textContent = `(${dead.length})`;
 
   const list = pinData.effectTab === 'alive' ? alive : dead;
-  const isAliveTab = pinData.effectTab === 'alive';
 
-  // 不存活Tab：红色组优先；存活Tab：绿色组优先
-  const orderedKeys = isAliveTab
-    ? ['flow_up_conv_ok','flow_up_conv_down','flow_flat_ok','flow_flat_conv_down','flow_down_conv_ok','flow_down_conv_down','observation','no_baseline']
-    : ['flow_down_conv_down','flow_down_conv_ok','flow_flat_conv_down','flow_flat_ok','flow_up_conv_down','flow_up_conv_ok','observation','no_baseline'];
+  // 象限图
+  const qPoints = list.filter(info => info._qd);
+  const xVals = qPoints.map(p => p._qd.x);
+  const xMedian = xVals.length > 0 ? xVals.slice().sort((a,b)=>a-b)[Math.floor(xVals.length/2)] : 0;
+  const yThreshold = 0.01; // 1%
 
-  // 分桶
-  const groupMap = {};
-  for (const def of DT_GROUP_DEFS) groupMap[def.key] = [];
-  for (const info of list) groupMap[info._dtLeaf]?.push(info);
-
-  // 组内排序：按流量变化绝对值降序
-  for (const items of Object.values(groupMap)) {
-    items.sort((a, b) => Math.abs(b.exposure_change || 0) - Math.abs(a.exposure_change || 0));
+  // 分象限: Q1=右上(高曝光高转化) Q2=左上 Q3=左下 Q4=右下
+  for (const info of list) {
+    if (!info._qd) { info._quadrant = null; continue; }
+    const xHigh = info._qd.x >= xMedian;
+    const yHigh = info._qd.y >= yThreshold;
+    info._quadrant = xHigh ? (yHigh ? 'Q1' : 'Q4') : (yHigh ? 'Q2' : 'Q3');
   }
 
-  const defMap = {};
-  for (const d of DT_GROUP_DEFS) defMap[d.key] = d;
+  qContainer.innerHTML = renderQuadrantSVG(qPoints, xMedian, yThreshold);
+
+  // 筛选卡片
+  let filtered = list;
+  if (pinQuadrantFilter) {
+    filtered = list.filter(info => info._quadrant === pinQuadrantFilter);
+  }
+
+  // 按象限分组展示
+  const quadrantDefs = [
+    { key: 'Q1', label: '老客曝光高 · 转化高', color: '#16A34A' },
+    { key: 'Q2', label: '老客曝光低 · 转化高', color: '#EAB308' },
+    { key: 'Q4', label: '老客曝光高 · 转化低', color: '#EA580C' },
+    { key: 'Q3', label: '老客曝光低 · 转化低', color: '#DC2626' },
+    { key: null, label: '数据缺失', color: '#94A3B8' },
+  ];
 
   let html = '';
-  for (const key of orderedKeys) {
-    const items = groupMap[key];
-    if (!items || items.length === 0) continue;
-    const def = defMap[key];
-    const advice = ADVICE_MAP[key]?.[isAliveTab ? 'alive' : 'dead'] || '';
+  for (const qd of quadrantDefs) {
+    const items = filtered.filter(info => info._quadrant === qd.key);
+    if (items.length === 0) continue;
+    if (pinQuadrantFilter && qd.key !== pinQuadrantFilter && qd.key !== null) continue;
+
+    items.sort((a, b) => (b.exposure_change || 0) - (a.exposure_change || 0));
 
     html += `<div class="pin-dt-group">
-      <div class="pin-dt-group-header" style="border-left:4px solid ${def.color}">
-        <span class="pin-dt-group-title">${def.label}</span>
+      <div class="pin-dt-group-header" style="border-left:4px solid ${qd.color}">
+        <span class="pin-dt-group-title">${qd.label}</span>
         <span class="pin-dt-count">${items.length}</span>
       </div>
       <div class="pin-cards-grid">
-        ${items.map(info => {
-          const erRate = info.exposure_redeem_rate != null ? fmtPinPct(info.exposure_redeem_rate) : '-';
-          return `<div class="pin-card" onclick="openPinModal('${info.brand_id}')">
-            <div class="pin-card-head">
-              <div class="pin-card-brand">${info.brand_name || info.brand_id}</div>
-              <div class="pin-card-meta">周期${info.pin_period_days}天</div>
-            </div>
-            <div class="pin-card-metrics">
-              <div class="pin-card-metric"><span>日均曝光</span><b>${fmtWan(info.daily_avg_exposure)}</b></div>
-              <div class="pin-card-metric"><span>日均核销</span><b>${fmtPinNum(info.daily_avg_redeem)}</b></div>
-              <div class="pin-card-metric"><span>曝光核销率</span><b>${erRate}</b></div>
-            </div>
-            <div class="pin-card-tags">${renderDiagTags(info)}</div>
-          </div>`;
-        }).join('')}
+        ${items.map(info => renderBrandCard(info)).join('')}
       </div>
     </div>`;
   }
+  cContainer.innerHTML = html || '<div class="pin-empty">暂无品牌</div>';
+}
 
-  container.innerHTML = html || '<div class="pin-empty">暂无品牌</div>';
+function renderBrandCard(info) {
+  const erRate = info.exposure_redeem_rate != null ? fmtPinPct(info.exposure_redeem_rate) : '-';
+  const xVal = info._qd ? fmtPinNum(Math.round(info._qd.x)) : '-';
+  return `<div class="pin-card" onclick="openPinModal('${info.brand_id}')">
+    <div class="pin-card-head">
+      <div class="pin-card-brand">${info.brand_name || info.brand_id}</div>
+      <div class="pin-card-meta">周期${info.pin_period_days}天</div>
+    </div>
+    <div class="pin-card-metrics">
+      <div class="pin-card-metric"><span>日均曝光</span><b>${fmtWan(info.daily_avg_exposure)}</b></div>
+      <div class="pin-card-metric"><span>日均核销</span><b>${fmtPinNum(info.daily_avg_redeem)}</b></div>
+      <div class="pin-card-metric"><span>曝光核销率</span><b>${erRate}</b></div>
+      <div class="pin-card-metric"><span>老客曝光比</span><b>${xVal}</b></div>
+    </div>
+    <div class="pin-card-tags">${renderDiagTags(info)}</div>
+  </div>`;
+}
+
+function renderQuadrantSVG(points, xMedian, yThreshold) {
+  if (points.length === 0) return '<div style="padding:20px;text-align:center;color:#94A3B8">无象限数据</div>';
+
+  const W = 720, H = 400, P = 60, TOP = 20, RIGHT = 20;
+  const plotW = W - P - RIGHT, plotH = H - TOP - P;
+
+  // 数据范围（log scale for X since range is huge）
+  const xVals = points.map(p => p._qd.x);
+  const yVals = points.map(p => p._qd.y);
+  const xMin = Math.min(...xVals) * 0.8;
+  const xMax = Math.max(...xVals) * 1.2;
+  const yMin = 0;
+  const yMax = Math.max(...yVals, yThreshold * 2) * 1.2;
+
+  // Log scale for X
+  const logXMin = Math.log10(Math.max(xMin, 1));
+  const logXMax = Math.log10(Math.max(xMax, 2));
+  const logXMedian = Math.log10(Math.max(xMedian, 1));
+
+  function toSvgX(val) {
+    const logVal = Math.log10(Math.max(val, 1));
+    return P + ((logVal - logXMin) / (logXMax - logXMin)) * plotW;
+  }
+  function toSvgY(val) {
+    return TOP + plotH - ((val - yMin) / (yMax - yMin)) * plotH;
+  }
+
+  // 象限背景
+  const mX = toSvgX(xMedian);
+  const tY = toSvgY(yThreshold);
+  const quadBg = `
+    <rect x="${P}" y="${TOP}" width="${mX-P}" height="${tY-TOP}" fill="#FEF2F210" stroke="none"/>
+    <rect x="${mX}" y="${TOP}" width="${P+plotW-mX}" height="${tY-TOP}" fill="#F0FDF410" stroke="none"/>
+    <rect x="${P}" y="${tY}" width="${mX-P}" height="${TOP+plotH-tY}" fill="#FEF2F220" stroke="none"/>
+    <rect x="${mX}" y="${tY}" width="${P+plotW-mX}" height="${TOP+plotH-tY}" fill="#FFFBEB10" stroke="none"/>
+  `;
+
+  // 分界线
+  const thresholdLines = `
+    <line x1="${mX}" y1="${TOP}" x2="${mX}" y2="${TOP+plotH}" stroke="#94A3B8" stroke-width="1" stroke-dasharray="4,3"/>
+    <line x1="${P}" y1="${tY}" x2="${P+plotW}" y2="${tY}" stroke="#94A3B8" stroke-width="1" stroke-dasharray="4,3"/>
+    <text x="${mX+4}" y="${TOP+14}" font-size="10" fill="#64748B">X中位数 ${fmtPinNum(Math.round(xMedian))}</text>
+    <text x="${P+plotW+4}" y="${tY+4}" font-size="10" fill="#64748B">1%</text>
+  `;
+
+  // 象限标签
+  const qLabels = `
+    <text x="${mX + (P+plotW-mX)/2}" y="${(TOP+tY)/2}" text-anchor="middle" font-size="12" fill="#16A34A" opacity="0.6">Q1 高曝光·高转化</text>
+    <text x="${P + (mX-P)/2}" y="${(TOP+tY)/2}" text-anchor="middle" font-size="12" fill="#EAB308" opacity="0.6">Q2 低曝光·高转化</text>
+    <text x="${P + (mX-P)/2}" y="${tY + (TOP+plotH-tY)/2}" text-anchor="middle" font-size="12" fill="#DC2626" opacity="0.6">Q3 低曝光·低转化</text>
+    <text x="${mX + (P+plotW-mX)/2}" y="${tY + (TOP+plotH-tY)/2}" text-anchor="middle" font-size="12" fill="#EA580C" opacity="0.6">Q4 高曝光·低转化</text>
+  `;
+
+  // 品牌点
+  const dots = points.map(info => {
+    const qd = info._qd;
+    const sx = toSvgX(qd.x);
+    const sy = toSvgY(qd.y);
+    const xHigh = qd.x >= xMedian;
+    const yHigh = qd.y >= yThreshold;
+    const q = xHigh ? (yHigh ? 'Q1' : 'Q4') : (yHigh ? 'Q2' : 'Q3');
+    const color = q === 'Q1' ? '#16A34A' : q === 'Q2' ? '#EAB308' : q === 'Q3' ? '#DC2626' : '#EA580C';
+    const name = info.brand_name || info.brand_id;
+    return `<circle cx="${sx.toFixed(1)}" cy="${sy.toFixed(1)}" r="6" fill="${color}" opacity="0.7" style="cursor:pointer"
+      onclick="pinQuadrantClick('${q}')">
+      <title>${name}\n老客曝光比: ${fmtPinNum(Math.round(qd.x))}\n曝光核销率: ${(qd.y*100).toFixed(2)}%</title>
+    </circle>
+    <text x="${sx.toFixed(1)}" y="${(sy-8).toFixed(1)}" text-anchor="middle" font-size="9" fill="#1E293B" pointer-events="none">${name.length > 4 ? name.slice(0,4)+'…' : name}</text>`;
+  }).join('');
+
+  // X轴刻度 (log scale)
+  const xTicks = [];
+  for (let p = Math.ceil(logXMin); p <= Math.floor(logXMax); p++) {
+    const val = Math.pow(10, p);
+    const sx = toSvgX(val);
+    xTicks.push(`<text x="${sx}" y="${TOP+plotH+16}" text-anchor="middle" font-size="10" fill="#64748B">${fmtPinNum(val)}</text>`);
+    xTicks.push(`<line x1="${sx}" y1="${TOP}" x2="${sx}" y2="${TOP+plotH}" stroke="#E2E8F0" stroke-dasharray="2,2"/>`);
+  }
+
+  // Y轴刻度
+  const yTicks = [];
+  const yStep = yMax > 0.05 ? 0.01 : 0.005;
+  for (let v = 0; v <= yMax; v += yStep) {
+    const sy = toSvgY(v);
+    if (sy < TOP || sy > TOP + plotH) continue;
+    yTicks.push(`<text x="${P-6}" y="${sy+3}" text-anchor="end" font-size="10" fill="#94A3B8">${(v*100).toFixed(1)}%</text>`);
+    yTicks.push(`<line x1="${P}" y1="${sy}" x2="${P+plotW}" y2="${sy}" stroke="#E2E8F0" stroke-dasharray="2,2"/>`);
+  }
+
+  // 轴标签
+  const axisLabels = `
+    <text x="${P + plotW/2}" y="${H-4}" text-anchor="middle" font-size="12" fill="#64748B">老客曝光比例（高低频尽曝UV/日均交易笔数）</text>
+    <text x="14" y="${TOP + plotH/2}" text-anchor="middle" font-size="12" fill="#64748B" transform="rotate(-90,14,${TOP + plotH/2})">曝光核销率</text>
+  `;
+
+  // 筛选按钮行
+  const filterBtns = `<div class="pin-quadrant-filters" style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap">
+    <button class="pin-qf-btn ${!pinQuadrantFilter ? 'active' : ''}" onclick="pinQuadrantClick(null)">全部</button>
+    <button class="pin-qf-btn ${pinQuadrantFilter==='Q1' ? 'active' : ''}" onclick="pinQuadrantClick('Q1')" style="border-color:#16A34A;color:#16A34A">Q1 高曝光·高转化</button>
+    <button class="pin-qf-btn ${pinQuadrantFilter==='Q2' ? 'active' : ''}" onclick="pinQuadrantClick('Q2')" style="border-color:#EAB308;color:#EAB308">Q2 低曝光·高转化</button>
+    <button class="pin-qf-btn ${pinQuadrantFilter==='Q4' ? 'active' : ''}" onclick="pinQuadrantClick('Q4')" style="border-color:#EA580C;color:#EA580C">Q4 高曝光·低转化</button>
+    <button class="pin-qf-btn ${pinQuadrantFilter==='Q3' ? 'active' : ''}" onclick="pinQuadrantClick('Q3')" style="border-color:#DC2626;color:#DC2626">Q3 低曝光·低转化</button>
+  </div>`;
+
+  return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:${H}px;background:#fff;border:1px solid #E2E8F0;border-radius:8px">
+    ${quadBg}
+    ${xTicks.join('')}
+    ${yTicks.join('')}
+    ${thresholdLines}
+    ${qLabels}
+    ${dots}
+    ${axisLabels}
+  </svg>${filterBtns}`;
+}
+
+function pinQuadrantClick(q) {
+  pinQuadrantFilter = pinQuadrantFilter === q ? null : q;
+  renderEffectGrid();
 }
 
 function switchPinEffectTab(tab) {
   pinData.effectTab = tab;
+  pinQuadrantFilter = null;
   document.querySelectorAll('.pin-effect-tab').forEach(b => {
     b.classList.toggle('active', b.getAttribute('onclick').includes(`'${tab}'`));
   });

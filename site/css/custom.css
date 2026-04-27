@@ -2207,6 +2207,12 @@ body {
   padding: 1px 4px; border: 1px solid #E2E8F0; border-radius: 3px;
   font-size: 10px; color: #64748B; background: #fff; cursor: pointer;
 }
+/* quadrant filter buttons */
+.pin-qf-btn {
+  padding: 4px 12px; border: 1px solid #E2E8F0; border-radius: 6px;
+  background: #fff; font-size: 12px; color: #64748B; cursor: pointer;
+}
+.pin-qf-btn.active { background: #F1F5F9; font-weight: 600; }
 
 /* effect tabs (legacy, keep for compat) */
 .pin-effect-tabs {
