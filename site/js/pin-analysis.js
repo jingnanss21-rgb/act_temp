@@ -446,10 +446,8 @@ function renderEffectGrid() {
 
     html += `<div class="pin-dt-group">
       <div class="pin-dt-group-header" style="border-left:4px solid ${def.color}">
-        <div class="pin-dt-group-title">
-          ${def.label} <span class="pin-dt-count">${items.length}</span>
-        </div>
-        <div class="pin-dt-advice">${advice}</div>
+        <span class="pin-dt-group-title">${def.label}</span>
+        <span class="pin-dt-count">${items.length}</span>
       </div>
       <div class="pin-cards-grid">
         ${items.map(info => {
@@ -463,13 +461,6 @@ function renderEffectGrid() {
               <div class="pin-card-metric"><span>日均曝光</span><b>${fmtWan(info.daily_avg_exposure)}</b></div>
               <div class="pin-card-metric"><span>日均核销</span><b>${fmtPinNum(info.daily_avg_redeem)}</b></div>
               <div class="pin-card-metric"><span>曝光核销率</span><b>${erRate}</b></div>
-            </div>
-            <div class="pin-card-chart-wrap">
-              <select class="pin-card-chart-select" onchange="switchMiniChart(this,'${info.brand_id}')" onclick="event.stopPropagation()">
-                <option value="exposure">曝光</option>
-                <option value="exp_redeem_rate">曝光核销率</option>
-              </select>
-              <div class="pin-card-chart" id="mini-chart-${info.brand_id}">${renderMiniExposureSVG(info.daily_series)}</div>
             </div>
             <div class="pin-card-tags">${renderDiagTags(info)}</div>
           </div>`;
@@ -1079,8 +1070,18 @@ function renderBigChartSVG(series, pinDate, isRate) {
 
   const W = 820, H = 280, P = 50;
   const vals = validSeries.map(s => s.value);
-  const max = Math.max(...vals, isRate ? 0.1 : 1);
-  const min = 0;
+  // 率指标：Y轴适配数据范围（不从0开始），留10%余量
+  let max, min;
+  if (isRate) {
+    const dataMax = Math.max(...vals);
+    const dataMin = Math.min(...vals);
+    const range = dataMax - dataMin || dataMax * 0.1 || 0.001;
+    min = Math.max(0, dataMin - range * 0.1);
+    max = dataMax + range * 0.1;
+  } else {
+    min = 0;
+    max = Math.max(...vals, 1);
+  }
   const xStep = (W - P*2) / Math.max(series.length - 1, 1);
 
   // 折线path
@@ -1108,12 +1109,12 @@ function renderBigChartSVG(series, pinDate, isRate) {
     }
   }
 
-  // Y轴grid（4档）
-  const grids = [0.25, 0.5, 0.75, 1.0].map(r => {
-    const v = max * r;
+  // Y轴grid（4档，适配min~max范围）
+  const grids = [0, 0.25, 0.5, 0.75, 1.0].map(r => {
+    const v = min + (max - min) * r;
     const y = H - P - r * (H - P*2);
     return `<line x1="${P}" y1="${y}" x2="${W-P}" y2="${y}" stroke="#E2E8F0" stroke-dasharray="3,3"/>
-            <text x="${P-6}" y="${y+4}" text-anchor="end" font-size="10" fill="#94A3B8">${isRate ? (v*100).toFixed(1)+'%' : fmtPinNum(v)}</text>`;
+            <text x="${P-6}" y="${y+4}" text-anchor="end" font-size="10" fill="#94A3B8">${isRate ? (v*100).toFixed(2)+'%' : fmtPinNum(v)}</text>`;
   }).join('');
 
   // X轴labels（首中末 + 每隔N）
