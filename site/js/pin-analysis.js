@@ -568,22 +568,22 @@ function renderQuadrantSVG(points, xThreshold, yThreshold) {
     <text x="${sx.toFixed(1)}" y="${(sy-8).toFixed(1)}" text-anchor="middle" font-size="9" fill="#1E293B" pointer-events="none">${name.length > 4 ? name.slice(0,4)+'...' : name}</text>`;
   }).join('');
 
-  // X轴刻度 (%)
+  // X轴刻度 (%) — 最多5个刻度
   const xTicks = [];
-  const xTickStep = xAbsMax > 1 ? 0.5 : xAbsMax > 0.3 ? 0.2 : 0.1;
+  const xTickStep = niceStep(xAbsMax, 5);
   for (let v = -Math.floor(xAbsMax / xTickStep) * xTickStep; v <= xAbsMax; v += xTickStep) {
-    if (Math.abs(v) < xTickStep * 0.1) continue; // skip 0
+    if (Math.abs(v) < xTickStep * 0.01) continue;
     const sx = toSvgX(v);
-    if (sx < P || sx > P + plotW) continue;
+    if (sx < P + 5 || sx > P + plotW - 5) continue;
     xTicks.push(`<text x="${sx}" y="${TOP+plotH+16}" text-anchor="middle" font-size="10" fill="#64748B">${v>=0?'+':''}${(v*100).toFixed(0)}%</text>`);
     xTicks.push(`<line x1="${sx}" y1="${TOP}" x2="${sx}" y2="${TOP+plotH}" stroke="#E2E8F0" stroke-dasharray="2,2"/>`);
   }
 
-  // Y轴刻度 (%)
+  // Y轴刻度 (%) — 最多5个刻度
   const yTicks = [];
-  const yTickStep = yAbsMax > 1 ? 0.5 : yAbsMax > 0.3 ? 0.2 : 0.1;
+  const yTickStep = niceStep(yAbsMax, 5);
   for (let v = -Math.floor(yAbsMax / yTickStep) * yTickStep; v <= yAbsMax; v += yTickStep) {
-    if (Math.abs(v) < yTickStep * 0.1) continue;
+    if (Math.abs(v) < yTickStep * 0.01) continue;
     const sy = toSvgY(v);
     if (sy < TOP || sy > TOP + plotH) continue;
     yTicks.push(`<text x="${P-6}" y="${sy+3}" text-anchor="end" font-size="10" fill="#94A3B8">${v>=0?'+':''}${(v*100).toFixed(0)}%</text>`);
@@ -1308,6 +1308,15 @@ function parseRate(v) {
   }
   const n = parseFloat(s);
   return isNaN(n) ? null : n;
+}
+
+// 计算合理的刻度间距（目标n个刻度）
+function niceStep(range, targetTicks) {
+  const raw = range / targetTicks;
+  const mag = Math.pow(10, Math.floor(Math.log10(raw)));
+  const norm = raw / mag;
+  const nice = norm <= 1.5 ? 1 : norm <= 3 ? 2 : norm <= 7 ? 5 : 10;
+  return nice * mag;
 }
 
 function fmtPinNum(v) {
