@@ -23,6 +23,7 @@ let pinData = {
     unqualified_pinned: [],
   },
   effectTab: 'alive',  // 'alive' | 'dead'
+  exposureMode: 'total', // 'total' | 'dual' (整体/二选一)
 };
 
 let pinMetricsCache = {};  // brand_id → {daily_exposure_avg, daily_claim_avg, ...}
@@ -299,6 +300,10 @@ function renderPinAnalysis() {
           <button class="pin-effect-tab ${pinData.effectTab === 'dead' ? 'active' : ''}" onclick="switchPinEffectTab('dead')">
             ❌ 不存活 <span id="pin-count-dead"></span>
           </button>
+          <span style="margin-left:auto">
+            <button class="pin-period-btn ${pinData.exposureMode === 'total' ? 'active' : ''}" onclick="switchExposureMode('total')">整体曝光</button>
+            <button class="pin-period-btn ${pinData.exposureMode === 'dual' ? 'active' : ''}" onclick="switchExposureMode('dual')">二选一曝光</button>
+          </span>
         </div>
 
         <div id="pin-quadrant-container"></div>
@@ -422,9 +427,12 @@ function renderEffectGrid() {
   for (const bid of pinnedBids) {
     const info = computeBrandEffect(bid);
     info._dtLeaf = classifyBrandDT(info);
-    // 象限数据: x=曝光环比, y=曝光核销率环比
-    if (info.exposure_change != null && info.avg_before > 0 && info.conversion_change != null) {
-      info._qd = { x: info.exposure_change, y: info.conversion_change };
+    // 象限数据: x=曝光环比(整体或二选一), y=曝光核销率环比
+    const isDual = pinData.exposureMode === 'dual';
+    const expChange = isDual ? info.dual_exposure_change : info.exposure_change;
+    const expAvgBefore = isDual ? info.dual_avg_before : info.avg_before;
+    if (expChange != null && expAvgBefore > 0 && info.conversion_change != null) {
+      info._qd = { x: expChange, y: info.conversion_change };
     } else {
       info._qd = null;
     }
@@ -490,17 +498,22 @@ function renderEffectGrid() {
 }
 
 function renderBrandCard(info) {
-  const xVal = info._qd ? `${info._qd.x >= 0 ? '+' : ''}${(info._qd.x * 100).toFixed(0)}%` : '-';
-  const yVal = info._qd ? `${info._qd.y >= 0 ? '+' : ''}${(info._qd.y * 100).toFixed(0)}%` : '-';
-  const xColor = info._qd && info._qd.x >= 0 ? '#16A34A' : '#DC2626';
-  const yColor = info._qd && info._qd.y >= 0 ? '#16A34A' : '#DC2626';
+  const isDual = pinData.exposureMode === 'dual';
+  const expChange = isDual ? info.dual_exposure_change : info.exposure_change;
+  const xVal = (expChange != null && (isDual ? info.dual_avg_before : info.avg_before) > 0)
+    ? `${expChange >= 0 ? '+' : ''}${(expChange * 100).toFixed(0)}%` : '-';
+  const yVal = info.conversion_change != null
+    ? `${info.conversion_change >= 0 ? '+' : ''}${(info.conversion_change * 100).toFixed(0)}%` : '-';
+  const xColor = expChange >= 0 ? '#16A34A' : '#DC2626';
+  const yColor = info.conversion_change != null && info.conversion_change >= 0 ? '#16A34A' : '#DC2626';
+  const expLabel = isDual ? '二选一' : '流量';
   return `<div class="pin-card" onclick="openPinModal('${info.brand_id}')">
     <div class="pin-card-head">
       <div class="pin-card-brand">${info.brand_name || info.brand_id}</div>
       <div class="pin-card-meta">周期${info.pin_period_days}天</div>
     </div>
     <div class="pin-card-tags">
-      <span class="pin-tag" style="color:${xColor};background:${xColor}10">流量 ${xVal}</span>
+      <span class="pin-tag" style="color:${xColor};background:${xColor}10">${expLabel} ${xVal}</span>
       <span class="pin-tag" style="color:${yColor};background:${yColor}10">转化 ${yVal}</span>
     </div>
   </div>`;
@@ -595,8 +608,9 @@ function renderQuadrantSVG(points, xThreshold, yThreshold) {
   }
 
   // 轴标签
+  const xLabel = pinData.exposureMode === 'dual' ? '二选一曝光环比（商业支付+面对面+固定入口）' : '曝光环比（置顶前后日均曝光PV变化）';
   const axisLabels = `
-    <text x="${P + plotW/2}" y="${H-4}" text-anchor="middle" font-size="12" fill="#64748B">曝光环比（置顶前后日均曝光PV变化）</text>
+    <text x="${P + plotW/2}" y="${H-4}" text-anchor="middle" font-size="12" fill="#64748B">${xLabel}</text>
     <text x="14" y="${TOP + plotH/2}" text-anchor="middle" font-size="12" fill="#64748B" transform="rotate(-90,14,${TOP + plotH/2})">转化环比（置顶前后曝光核销率变化）</text>
   `;
 
@@ -623,6 +637,18 @@ function renderQuadrantSVG(points, xThreshold, yThreshold) {
 function pinQuadrantClick(q) {
   pinQuadrantFilter = pinQuadrantFilter === q ? null : q;
   renderEffectGrid();
+}
+
+function switchExposureMode(mode) {
+  pinData.exposureMode = mode;
+  pinQuadrantFilter = null;
+  renderEffectGrid();
+  // 更新按钮状态
+  document.querySelectorAll('.pin-period-btn').forEach(b => {
+    if (b.textContent.includes('整体') || b.textContent.includes('二选一')) {
+      b.classList.toggle('active', b.textContent.includes(mode === 'dual' ? '二选一' : '整体'));
+    }
+  });
 }
 
 function switchPinEffectTab(tab) {
@@ -686,6 +712,10 @@ function computeBrandEffect(bid) {
     store_rate: dailyMap[d].store_rate,
     high_freq: dailyMap[d].high_freq,
     low_freq: dailyMap[d].low_freq,
+    dual_exposure: (dailyMap[d].ch_commercial || 0) + (dailyMap[d].ch_f2f || 0) + (dailyMap[d].ch_fixed || 0),
+    ch_fixed: dailyMap[d].ch_fixed,
+    ch_commercial: dailyMap[d].ch_commercial,
+    ch_f2f: dailyMap[d].ch_f2f,
   }));
 
   // 置顶周期累计 & 日均
@@ -708,14 +738,19 @@ function computeBrandEffect(bid) {
 
   // 置顶前后均值对比（曝光）
   const before = [], after = [];
+  const dualBefore = [], dualAfter = [];
   for (const row of daily_series) {
     if (!pinDt) continue;
-    if (new Date(row.date) < pinDt) before.push(row.exposure);
-    else after.push(row.exposure);
+    const dual = (row.ch_commercial || 0) + (row.ch_f2f || 0) + (row.ch_fixed || 0);
+    if (new Date(row.date) < pinDt) { before.push(row.exposure); dualBefore.push(dual); }
+    else { after.push(row.exposure); dualAfter.push(dual); }
   }
   const avgBefore = before.length > 0 ? before.reduce((s,v)=>s+v,0) / before.length : 0;
   const avgAfter = after.length > 0 ? after.reduce((s,v)=>s+v,0) / after.length : 0;
   const exposureChange = avgBefore > 0 ? (avgAfter - avgBefore) / avgBefore : (avgAfter > 0 ? 1 : 0);
+  const dualAvgBefore = dualBefore.length > 0 ? dualBefore.reduce((s,v)=>s+v,0) / dualBefore.length : 0;
+  const dualAvgAfter = dualAfter.length > 0 ? dualAfter.reduce((s,v)=>s+v,0) / dualAfter.length : 0;
+  const dualExposureChange = dualAvgBefore > 0 ? (dualAvgAfter - dualAvgBefore) / dualAvgBefore : (dualAvgAfter > 0 ? 1 : 0);
 
   // 转化率变化（置顶前后曝光核销率均值对比）
   const convBefore = [], convAfter = [];
@@ -786,6 +821,8 @@ function computeBrandEffect(bid) {
     w7_avg_txn_count: bd.w7_avg_txn_count || '-',
     avg_before: avgBefore, avg_after: avgAfter,
     exposure_change: exposureChange,
+    dual_exposure_change: dualExposureChange,
+    dual_avg_before: dualAvgBefore, dual_avg_after: dualAvgAfter,
     conversion_change: conversionChange,
     conv_avg_before: convAvgBefore, conv_avg_after: convAvgAfter,
     channel_shares, main_channel, main_channel_share, channel_concentrated,
@@ -837,7 +874,8 @@ function openPinModal(bid) {
         <span>📈 品牌趋势（最近30天）</span>
         <select id="pin-chart-metric" onchange="updatePinChart()">
           <option value="exposure">曝光PV</option>
-          <option value="exp_redeem_rate">曝光核销率(转化)</option>
+          <option value="dual_exposure">二选一曝光PV</option>
+          <option value="exp_redeem_rate">曝光核销率</option>
           <option value="redeem">核销PV</option>
           <option value="claim">领取PV</option>
           <option value="store_rate">到店核销率</option>
