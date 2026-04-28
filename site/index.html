@@ -6,6 +6,16 @@
   <title>活动运营数据看板</title>
   <link rel="stylesheet" href="css/custom.css">
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+  <script>
+    // embed mode: ?embed=1 隐藏header/密码/减少padding
+    window.isEmbedMode = new URLSearchParams(location.search).get('embed') === '1';
+  </script>
+  <style>
+    body.embed-mode { background: transparent !important; padding: 0 !important; }
+    body.embed-mode .header { display: none !important; }
+    body.embed-mode #auth-overlay { display: none !important; }
+    body.embed-mode .tab-bar { margin-top: 0; }
+  </style>
 </head>
 <body>
 
@@ -63,6 +73,10 @@
       localStorage.removeItem(AUTH_KEY);
       localStorage.removeItem(AUTH_EXPIRE_KEY);
     }
+  </script>
+
+  <script>
+    if (window.isEmbedMode) document.body.classList.add('embed-mode');
   </script>
 
   <!-- Header -->
