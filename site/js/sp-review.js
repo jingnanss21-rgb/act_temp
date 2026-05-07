@@ -28,8 +28,8 @@ async function initSpReview() {
     // 1. 加载跟进表 (服务商+品牌状态)
     spReviewData.merchants = await fetchAllFromView('tem_merchant_contacts', '*');
 
-    // 2. 提取服务商列表
-    const spSet = new Set(spReviewData.merchants.map(m => m.operating_sp).filter(Boolean));
+    // 2. 提取制券服务商列表
+    const spSet = new Set(spReviewData.merchants.map(m => m.coupon_sp).filter(Boolean));
     spReviewData.spList = [...spSet].sort();
 
     // 3. 渲染筛选栏
@@ -64,7 +64,7 @@ function renderSpReviewFilters(container) {
   const spOptions = spReviewData.spList.map(sp => `<option value="${sp}">${sp}</option>`).join('');
   container.innerHTML = `
     <div id="spr-filter-bar" style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:20px;padding:14px 18px;background:#fff;border-radius:12px;box-shadow:0 1px 3px rgba(0,0,0,0.06)">
-      <label style="font-size:12px;font-weight:600;color:#475569">服务商</label>
+      <label style="font-size:12px;font-weight:600;color:#475569">制券服务商</label>
       <select id="spr-sp-select" onchange="loadSpReviewData()" style="padding:6px 12px;border:1px solid #e2e8f0;border-radius:8px;font-size:13px">${spOptions}</select>
       <label style="font-size:12px;font-weight:600;color:#475569;margin-left:12px">日期区间</label>
       <input type="date" id="spr-date-start" onchange="loadSpReviewData()" style="padding:5px 10px;border:1px solid #e2e8f0;border-radius:8px;font-size:12px">
@@ -87,8 +87,8 @@ async function loadSpReviewData() {
   content.innerHTML = '<div class="loading"><div class="spinner"></div><p>加载中...</p></div>';
 
   try {
-    // 该服务商的品牌
-    const spBrands = spReviewData.merchants.filter(m => m.operating_sp === sp);
+    // 该制券服务商的品牌
+    const spBrands = spReviewData.merchants.filter(m => m.coupon_sp === sp);
     const brandIds = spBrands.map(m => m.brand_id).filter(Boolean);
     const brandNames = spBrands.map(m => m.brand_name).filter(Boolean);
 
