@@ -100,33 +100,11 @@ async function loadSpReviewData() {
       if (res.data) brandDaily = brandDaily.concat(res.data);
     }
 
-    // 加载活动数据 (用于 Top3 和明细)
-    let activities = [];
-    for (let i = 0; i < brandIds.length; i += 20) {
-      const batch = brandIds.slice(i, i + 20);
-      const res = await supabaseClient.from('tem_activity_daily')
-        .select('*')
-        .in('brand_id', batch)
-        .gte('report_date', startDate)
-        .lte('report_date', endDate);
-      if (res.data) activities = activities.concat(res.data);
-    }
-
-    // 全行业活动 (Top3 用)
-    let allActivities = [];
-    let offset = 0;
-    while (true) {
-      const res = await supabaseClient.from('tem_activity_daily')
-        .select('brand_id,brand_name,category_name,activity_id,activity_name,batch_name,coupon_type,exposure_pv,exposure_uv,claim_pv,claim_uv,redeem_pv,redeem_uv,claim_to_store_rate_uv,store_redeem_rate_uv,price_power')
-        .gte('report_date', startDate)
-        .lte('report_date', endDate)
-        .gt('exposure_pv', 0)
-        .range(offset, offset + 999);
-      if (!res.data || res.data.length === 0) break;
-      allActivities = allActivities.concat(res.data);
-      if (res.data.length < 1000) break;
-      offset += 1000;
-    }
+    // 加载活动数据 — 用和行业最佳实践相同的视图（已聚合，口径一致）
+    const viewName = getViewName();
+    const allActivities = await fetchAllFromView(viewName, '*');
+    const brandIdSet = new Set(brandIds);
+    const activities = allActivities.filter(a => brandIdSet.has(String(a.brand_id)));
 
     // 渲染
     renderSpReview(content, sp, spBrands, brandDaily, activities, allActivities, startDate, endDate);
@@ -191,20 +169,15 @@ function sprCard(label, value, color, bg) {
 function renderTop3Section(activities, isSp) {
   const CATS = ['茶饮咖啡', '中式快餐', '西式快餐', '正餐', '小吃', '甜品烘焙'];
 
-  // 按 (brand_id + activity_id) 聚合
-  const agg = {};
-  activities.forEach(a => {
-    const key = (a.brand_id || '') + '||' + (a.activity_id || '');
-    if (!agg[key]) agg[key] = { ...a, exp_sum: 0, redeem_sum: 0, count: 0 };
-    agg[key].exp_sum += (a.exposure_pv || 0);
-    agg[key].redeem_sum += (a.redeem_pv || 0);
-    agg[key].count++;
-  });
-
-  const items = Object.values(agg).map(a => ({
-    ...a,
-    exposure_redeem_rate: a.exp_sum > 0 ? a.redeem_sum / a.exp_sum : 0,
-  })).filter(a => a.exp_sum > 100); // 过滤低曝光
+  // 每条活动已是视图聚合后的单行，直接用 UV 口径计算转化率（和行业最佳实践一致）
+  const items = activities.filter(a => (a.exposure_uv || a.exposure_pv || 0) > 0).map(a => {
+    const eUv = a.exposure_uv || 0;
+    const rUv = a.redeem_uv || 0;
+    return {
+      ...a,
+      exposure_redeem_rate: eUv > 0 ? rUv / eUv : 0,
+    };
+  }).filter(a => a.exposure_redeem_rate > 0 && a.exposure_redeem_rate < 0.10); // 过滤异常(>10%为异常)
 
   let html = '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px">';
 
