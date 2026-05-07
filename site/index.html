@@ -110,6 +110,9 @@
     <div class="tab-item" data-tab="activity-alerts" onclick="switchTab('activity-alerts')">
       ⚠️ 活动预警
     </div>
+    <div class="tab-item" data-tab="sp-review" onclick="switchTab('sp-review')">
+      📝 服务商复盘
+    </div>
   </div>
 
   <!-- Tab 1: 行业最佳实践 -->
@@ -213,6 +216,13 @@
     </div>
   </div>
 
+  <!-- Tab 5: 服务商复盘 -->
+  <div id="sp-review-section" class="tab-content" style="display:none;">
+    <div id="sp-review-container">
+      <div class="loading"><div class="spinner"></div><p>加载数据中...</p></div>
+    </div>
+  </div>
+
   <!-- Export canvas (hidden) -->
   <div id="export-canvas-area"></div>
 
@@ -222,6 +232,7 @@
   <script src="js/brand-diagnosis.js"></script>
   <script src="js/activity-detail.js"></script>
   <script src="js/activity-alerts.js"></script>
+  <script src="js/sp-review.js"></script>
   <script>
     let diagInitialized = false;
     let alertsInitialized = false;
@@ -234,6 +245,7 @@
       document.getElementById('brand-diagnosis-section').style.display = tabName === 'brand-diagnosis' ? '' : 'none';
       document.getElementById('detail-section').style.display = tabName === 'activity-detail' ? '' : 'none';
       document.getElementById('alert-section').style.display = tabName === 'activity-alerts' ? '' : 'none';
+      document.getElementById('sp-review-section').style.display = tabName === 'sp-review' ? '' : 'none';
 
       if (tabName === 'activity-detail' && detailData.length === 0) {
         loadActivityDetail();
@@ -245,6 +257,10 @@
       if (tabName === 'activity-alerts' && !alertsInitialized) {
         alertsInitialized = true;
         loadActivityAlerts();
+      }
+      if (tabName === 'sp-review' && !spReviewInitialized) {
+        spReviewInitialized = true;
+        initSpReview();
       }
     }
 
