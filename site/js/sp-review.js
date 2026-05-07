@@ -85,28 +85,20 @@ async function loadSpReviewData() {
     const brandIds = spBrands.map(m => m.brand_id).filter(Boolean);
     const brandNames = spBrands.map(m => m.brand_name).filter(Boolean);
 
-    // 加载品牌日报 (用于趋势图 — 拉该服务商品牌的全量历史数据，不限日期区间)
+    // 加载品牌日报 (用于明细表业态映射)
     let brandDaily = [];
-    // 分批查（Supabase in 查询有限制）
     for (let i = 0; i < brandIds.length; i += 20) {
       const batch = brandIds.slice(i, i + 20).filter(id => id && id !== '/');
       if (!batch.length) continue;
-      // 不限日期区间，拉全量（用于计算首次出现日期 + 趋势）
-      let offset = 0;
-      while (true) {
-        const res = await supabaseClient.from('tem_brand_daily')
-          .select('brand_id,brand_name,report_date,category_l4')
-          .in('brand_id', batch)
-          .order('report_date', { ascending: true })
-          .range(offset, offset + 999);
-        if (res.error) { console.warn('[sp-review] brandDaily query error:', res.error); break; }
-        if (!res.data || res.data.length === 0) break;
-        brandDaily = brandDaily.concat(res.data);
-        if (res.data.length < 1000) break;
-        offset += 1000;
-      }
+      const res = await supabaseClient.from('tem_brand_daily')
+        .select('brand_id,brand_name,report_date,category_l4')
+        .in('brand_id', batch)
+        .gte('report_date', startDate)
+        .lte('report_date', endDate)
+        .limit(1000);
+      if (res.error) { console.warn('[sp-review] brandDaily error:', res.error); continue; }
+      if (res.data) brandDaily = brandDaily.concat(res.data);
     }
-    console.log('[sp-review] brandDaily loaded:', brandDaily.length, 'rows');
 
     // 加载活动数据 (用于 Top3 和明细)
     let activities = [];
@@ -171,9 +163,6 @@ function renderSpReview(container, sp, spBrands, brandDaily, activities, allActi
   html += sprCard('区间新上线', newOnline.length, '#2563eb', '#eff6ff');
   html += `</div>`;
 
-  // ===== A2. 趋势图 =====
-  html += `<div style="background:#fff;border-radius:12px;padding:16px;box-shadow:0 1px 3px rgba(0,0,0,0.06);margin-bottom:24px"><div id="spr-trend-chart" style="height:260px"></div></div>`;
-
   // ===== B. 服务商品牌 Top3 =====
   html += `<div style="margin-bottom:24px"><h3 style="font-size:15px;font-weight:700;color:#1e293b;margin-bottom:12px">🏆 ${sp} 品牌 · 分业态转化率 Top3</h3>`;
   html += renderTop3Section(activities, true);
@@ -192,83 +181,11 @@ function renderSpReview(container, sp, spBrands, brandDaily, activities, allActi
   html += `</div>`; // #spr-print-area end
 
   container.innerHTML = html;
-
-  // 渲染趋势图 (延迟确保 DOM 已渲染可见)
-  setTimeout(() => renderSpTrendChart(brandDaily, startDate, endDate), 100);
 }
 
 // ===== 卡片组件 =====
 function sprCard(label, value, color, bg) {
   return `<div style="background:${bg};border-radius:10px;padding:16px;border-left:4px solid ${color}"><div style="font-size:12px;color:#64748b;font-weight:600">${label}</div><div style="font-size:28px;font-weight:800;color:${color};margin-top:4px">${value}</div></div>`;
-}
-
-// ===== 趋势图 (ECharts) =====
-function renderSpTrendChart(brandDaily, startDate, endDate) {
-  const el = document.getElementById('spr-trend-chart');
-  if (!el) { console.warn('[sp-review] chart element not found'); return; }
-  if (typeof echarts === 'undefined') { console.warn('[sp-review] echarts not loaded'); return; }
-  console.log('[sp-review] renderSpTrendChart:', brandDaily.length, 'rows, range:', startDate, '~', endDate);
-
-  // 按周聚合
-  const weeks = [];
-  let cur = new Date(startDate);
-  // 对齐到周一
-  const day = cur.getDay();
-  cur.setDate(cur.getDate() - (day === 0 ? 6 : day - 1));
-  const end = new Date(endDate);
-  while (cur <= end) {
-    const weekStart = cur.toISOString().slice(0, 10);
-    const weekEnd = new Date(cur.getTime() + 6 * 86400000).toISOString().slice(0, 10);
-    weeks.push({ start: weekStart, end: weekEnd > endDate ? endDate : weekEnd, label: weekStart.slice(5) });
-    cur.setDate(cur.getDate() + 7);
-  }
-
-  // 每个品牌的首次出现日期 (历史全量)
-  const firstSeen = {};
-  brandDaily.forEach(r => {
-    if (!firstSeen[r.brand_id] || r.report_date < firstSeen[r.brand_id]) {
-      firstSeen[r.brand_id] = r.report_date;
-    }
-  });
-
-  // 每个日期有哪些品牌在线 (只看选定区间内)
-  const byDate = {};
-  brandDaily.forEach(r => {
-    if (r.report_date < startDate || r.report_date > endDate) return;
-    if (!byDate[r.report_date]) byDate[r.report_date] = new Set();
-    byDate[r.report_date].add(r.brand_id);
-  });
-
-  console.log('[sp-review] firstSeen brands:', Object.keys(firstSeen).length, 'byDate dates:', Object.keys(byDate).length);
-
-  const cumData = [];
-  const onlineData = [];
-
-  weeks.forEach(w => {
-    // 累计上线: 截止该周末，首次出现日期 <= weekEnd 的品牌数
-    const cum = Object.values(firstSeen).filter(d => d <= w.end).length;
-    cumData.push(cum);
-
-    // 当期在线: 该周内最新一天有数据的品牌数
-    const datesInWeek = Object.keys(byDate).filter(d => d >= w.start && d <= w.end).sort();
-    const latestDate = datesInWeek.length > 0 ? datesInWeek[datesInWeek.length - 1] : null;
-    onlineData.push(latestDate ? (byDate[latestDate] || new Set()).size : 0);
-  });
-
-  const chart = echarts.init(el);
-  chart.setOption({
-    title: { text: '品牌上线趋势（按周）', textStyle: { fontSize: 13, color: '#475569' }, left: 10, top: 5 },
-    tooltip: { trigger: 'axis' },
-    legend: { top: 5, right: 10, textStyle: { fontSize: 11 } },
-    grid: { left: 50, right: 30, top: 45, bottom: 30 },
-    xAxis: { type: 'category', data: weeks.map(w => w.label), axisLabel: { fontSize: 10 } },
-    yAxis: { type: 'value', axisLabel: { fontSize: 10 } },
-    series: [
-      { name: '累计上线', type: 'line', areaStyle: { opacity: 0.15 }, data: cumData, color: '#3b82f6', smooth: true },
-      { name: '当期在线', type: 'line', data: onlineData, color: '#10b981', smooth: true },
-    ]
-  });
-  window.addEventListener('resize', () => chart.resize());
 }
 
 // ===== Top3 分业态 =====
