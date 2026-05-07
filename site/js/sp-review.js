@@ -159,7 +159,7 @@ function renderSpReview(container, sp, spBrands, brandDaily, activitiesForTop3, 
 
   // ===== B. 服务商品牌 Top3 =====
   html += `<div style="margin-bottom:24px"><h3 style="font-size:15px;font-weight:700;color:#1e293b;margin-bottom:4px">🏆 ${sp} 品牌 · 分业态转化率 Top3</h3>`;
-  html += `<p style="font-size:11px;color:#94a3b8;margin:0 0 12px">统计口径：${periodLabel}日均 · UV曝光核销率（跟随顶部时间筛选）</p>`;
+  html += `<p style="font-size:11px;color:#94a3b8;margin:0 0 12px">统计口径：${periodLabel}日均 · UV曝光核销率</p>`;
   html += renderTop3Section(activitiesForTop3, true);
   html += `</div>`;
 
@@ -171,7 +171,7 @@ function renderSpReview(container, sp, spBrands, brandDaily, activitiesForTop3, 
 
   // ===== D. 全行业 Top3 =====
   html += `<div style="margin-bottom:24px"><h3 style="font-size:15px;font-weight:700;color:#1e293b;margin-bottom:4px">🌐 全行业标杆 · 分业态转化率 Top3</h3>`;
-  html += `<p style="font-size:11px;color:#94a3b8;margin:0 0 12px">统计口径：${periodLabel}日均 · UV曝光核销率（跟随顶部时间筛选）</p>`;
+  html += `<p style="font-size:11px;color:#94a3b8;margin:0 0 12px">统计口径：${periodLabel}日均 · UV曝光核销率</p>`;
   html += renderTop3Section(allActivities, false);
   html += `</div>`;
 
