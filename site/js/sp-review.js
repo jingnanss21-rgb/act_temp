@@ -85,19 +85,28 @@ async function loadSpReviewData() {
     const brandIds = spBrands.map(m => m.brand_id).filter(Boolean);
     const brandNames = spBrands.map(m => m.brand_name).filter(Boolean);
 
-    // 加载品牌日报 (用于趋势图 — 拉该服务商品牌的全量日期数据)
+    // 加载品牌日报 (用于趋势图 — 拉该服务商品牌的全量历史数据，不限日期区间)
     let brandDaily = [];
     // 分批查（Supabase in 查询有限制）
     for (let i = 0; i < brandIds.length; i += 20) {
-      const batch = brandIds.slice(i, i + 20);
-      const filterStr = batch.join(',');
-      const res = await supabaseClient.from('tem_brand_daily')
-        .select('brand_id,brand_name,report_date,category_l4,daily_exp_pv,daily_redeem_pv,w7_exposure_redeem_rate,w7_store_redeem_rate_uv')
-        .in('brand_id', batch)
-        .gte('report_date', startDate)
-        .lte('report_date', endDate);
-      if (res.data) brandDaily = brandDaily.concat(res.data);
+      const batch = brandIds.slice(i, i + 20).filter(id => id && id !== '/');
+      if (!batch.length) continue;
+      // 不限日期区间，拉全量（用于计算首次出现日期 + 趋势）
+      let offset = 0;
+      while (true) {
+        const res = await supabaseClient.from('tem_brand_daily')
+          .select('brand_id,brand_name,report_date,category_l4')
+          .in('brand_id', batch)
+          .order('report_date', { ascending: true })
+          .range(offset, offset + 999);
+        if (res.error) { console.warn('[sp-review] brandDaily query error:', res.error); break; }
+        if (!res.data || res.data.length === 0) break;
+        brandDaily = brandDaily.concat(res.data);
+        if (res.data.length < 1000) break;
+        offset += 1000;
+      }
     }
+    console.log('[sp-review] brandDaily loaded:', brandDaily.length, 'rows');
 
     // 加载活动数据 (用于 Top3 和明细)
     let activities = [];
@@ -196,7 +205,9 @@ function sprCard(label, value, color, bg) {
 // ===== 趋势图 (ECharts) =====
 function renderSpTrendChart(brandDaily, startDate, endDate) {
   const el = document.getElementById('spr-trend-chart');
-  if (!el || typeof echarts === 'undefined') return;
+  if (!el) { console.warn('[sp-review] chart element not found'); return; }
+  if (typeof echarts === 'undefined') { console.warn('[sp-review] echarts not loaded'); return; }
+  console.log('[sp-review] renderSpTrendChart:', brandDaily.length, 'rows, range:', startDate, '~', endDate);
 
   // 按周聚合
   const weeks = [];
@@ -212,7 +223,7 @@ function renderSpTrendChart(brandDaily, startDate, endDate) {
     cur.setDate(cur.getDate() + 7);
   }
 
-  // 每个品牌的首次出现日期
+  // 每个品牌的首次出现日期 (历史全量)
   const firstSeen = {};
   brandDaily.forEach(r => {
     if (!firstSeen[r.brand_id] || r.report_date < firstSeen[r.brand_id]) {
@@ -220,12 +231,15 @@ function renderSpTrendChart(brandDaily, startDate, endDate) {
     }
   });
 
-  // 每个日期有哪些品牌在线
+  // 每个日期有哪些品牌在线 (只看选定区间内)
   const byDate = {};
   brandDaily.forEach(r => {
+    if (r.report_date < startDate || r.report_date > endDate) return;
     if (!byDate[r.report_date]) byDate[r.report_date] = new Set();
     byDate[r.report_date].add(r.brand_id);
   });
+
+  console.log('[sp-review] firstSeen brands:', Object.keys(firstSeen).length, 'byDate dates:', Object.keys(byDate).length);
 
   const cumData = [];
   const onlineData = [];
