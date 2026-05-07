@@ -35,12 +35,19 @@ async function initSpReview() {
     // 3. 渲染筛选栏
     renderSpReviewFilters(container);
 
-    // 4. 默认选第一个服务商，日期默认上月
+    // 4. 默认选第一个服务商，日期默认近7天（数据从0414开始）
+    const DATA_MIN_DATE = '2026-04-14';
     const now = new Date();
-    const lastMonthEnd = new Date(now.getFullYear(), now.getMonth(), 0);
-    const lastMonthStart = new Date(lastMonthEnd.getFullYear(), lastMonthEnd.getMonth(), 1);
-    document.getElementById('spr-date-start').value = lastMonthStart.toISOString().slice(0, 10);
-    document.getElementById('spr-date-end').value = lastMonthEnd.toISOString().slice(0, 10);
+    const end = new Date(now); end.setDate(end.getDate() - 1); // 昨天
+    const start = new Date(end); start.setDate(start.getDate() - 6); // 往前7天
+    const startStr = start.toISOString().slice(0, 10);
+    const endStr = end.toISOString().slice(0, 10);
+    const sprStart = document.getElementById('spr-date-start');
+    const sprEnd = document.getElementById('spr-date-end');
+    sprStart.min = DATA_MIN_DATE;
+    sprEnd.min = DATA_MIN_DATE;
+    sprStart.value = startStr < DATA_MIN_DATE ? DATA_MIN_DATE : startStr;
+    sprEnd.value = endStr < DATA_MIN_DATE ? DATA_MIN_DATE : endStr;
 
     if (spReviewData.spList.length > 0) {
       document.getElementById('spr-sp-select').value = spReviewData.spList[0];
