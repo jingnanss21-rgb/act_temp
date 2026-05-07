@@ -107,14 +107,29 @@ async function loadSpReviewData() {
       if (res.data) brandDaily = brandDaily.concat(res.data);
     }
 
-    // 加载活动数据 — 用和行业最佳实践相同的视图（已聚合，口径一致）
+    // 加载活动数据 — Top3 用视图（跟随全局时间段）
     const viewName = getViewName();
     const allActivities = await fetchAllFromView(viewName, '*');
     const brandIdSet = new Set(brandIds);
-    const activities = allActivities.filter(a => brandIdSet.has(String(a.brand_id)));
+    const activitiesForTop3 = allActivities.filter(a => brandIdSet.has(String(a.brand_id)));
+
+    // 品牌明细表用原始日报按筛选日期聚合
+    let activitiesForDetail = [];
+    for (let i = 0; i < brandIds.length; i += 20) {
+      const batch = brandIds.slice(i, i + 20).filter(id => id && id !== '/');
+      if (!batch.length) continue;
+      const res = await supabaseClient.from('tem_activity_daily')
+        .select('brand_id,activity_id,activity_name,batch_name,exposure_pv,claim_pv,redeem_pv')
+        .in('brand_id', batch)
+        .gte('report_date', startDate)
+        .lte('report_date', endDate)
+        .limit(1000);
+      if (res.error) { console.warn('[sp-review] detail error:', res.error); continue; }
+      if (res.data) activitiesForDetail = activitiesForDetail.concat(res.data);
+    }
 
     // 渲染
-    renderSpReview(content, sp, spBrands, brandDaily, activities, allActivities, startDate, endDate);
+    renderSpReview(content, sp, spBrands, brandDaily, activitiesForTop3, activitiesForDetail, allActivities, startDate, endDate);
   } catch (e) {
     content.innerHTML = '<div style="padding:40px;text-align:center;color:#dc2626;">数据加载失败: ' + e.message + '</div>';
     console.error('[sp-review]', e);
@@ -122,19 +137,14 @@ async function loadSpReviewData() {
 }
 
 // ===== 主渲染 =====
-function renderSpReview(container, sp, spBrands, brandDaily, activities, allActivities, startDate, endDate) {
+function renderSpReview(container, sp, spBrands, brandDaily, activitiesForTop3, activitiesForDetail, allActivities, startDate, endDate) {
   const online = spBrands.filter(b => b.brand_status === '在线');
   const lost = spBrands.filter(b => b.brand_status === '流失');
   const prep = spBrands.filter(b => b.brand_status === '筹备中');
 
-  // 新上线 = 首次出现在品牌日报的日期在选定区间内
-  const firstSeen = {};
-  brandDaily.forEach(r => {
-    if (!firstSeen[r.brand_id] || r.report_date < firstSeen[r.brand_id]) {
-      firstSeen[r.brand_id] = r.report_date;
-    }
-  });
-  const newOnline = Object.entries(firstSeen).filter(([bid, d]) => d >= startDate && d <= endDate);
+  // 全局时间段标签
+  const period = window.currentPeriod || '7d';
+  const periodLabel = period === 'today' ? '当日' : period === '7d' ? '近7日' : '近30日';
 
   let html = '';
 
@@ -148,17 +158,20 @@ function renderSpReview(container, sp, spBrands, brandDaily, activities, allActi
   html += `</div>`;
 
   // ===== B. 服务商品牌 Top3 =====
-  html += `<div style="margin-bottom:24px"><h3 style="font-size:15px;font-weight:700;color:#1e293b;margin-bottom:12px">🏆 ${sp} 品牌 · 分业态转化率 Top3</h3>`;
-  html += renderTop3Section(activities, true);
+  html += `<div style="margin-bottom:24px"><h3 style="font-size:15px;font-weight:700;color:#1e293b;margin-bottom:4px">🏆 ${sp} 品牌 · 分业态转化率 Top3</h3>`;
+  html += `<p style="font-size:11px;color:#94a3b8;margin:0 0 12px">统计口径：${periodLabel}日均 · UV曝光核销率（跟随顶部时间筛选）</p>`;
+  html += renderTop3Section(activitiesForTop3, true);
   html += `</div>`;
 
   // ===== C. 品牌明细表 =====
-  html += `<div style="margin-bottom:24px"><h3 style="font-size:15px;font-weight:700;color:#1e293b;margin-bottom:12px">📋 品牌状态明细</h3>`;
-  html += renderBrandDetailTable(spBrands, brandDaily, activities);
+  html += `<div style="margin-bottom:24px"><h3 style="font-size:15px;font-weight:700;color:#1e293b;margin-bottom:4px">📋 品牌状态明细</h3>`;
+  html += `<p style="font-size:11px;color:#94a3b8;margin:0 0 12px">统计周期：${startDate} ~ ${endDate}（PV求和）</p>`;
+  html += renderBrandDetailTable(spBrands, brandDaily, activitiesForDetail);
   html += `</div>`;
 
   // ===== D. 全行业 Top3 =====
-  html += `<div style="margin-bottom:24px"><h3 style="font-size:15px;font-weight:700;color:#1e293b;margin-bottom:12px">🌐 全行业标杆 · 分业态转化率 Top3</h3>`;
+  html += `<div style="margin-bottom:24px"><h3 style="font-size:15px;font-weight:700;color:#1e293b;margin-bottom:4px">🌐 全行业标杆 · 分业态转化率 Top3</h3>`;
+  html += `<p style="font-size:11px;color:#94a3b8;margin:0 0 12px">统计口径：${periodLabel}日均 · UV曝光核销率（跟随顶部时间筛选）</p>`;
   html += renderTop3Section(allActivities, false);
   html += `</div>`;
 
