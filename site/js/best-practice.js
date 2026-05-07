@@ -361,7 +361,7 @@ function openLayer2(catKey) {
           <span class="drawer-medal">${medals[i]}</span>
           <div class="drawer-card-info">
             <div class="drawer-brand">${item.brand_name}</div>
-            <div class="drawer-act">${item.activity_name}</div>
+            <div class="drawer-act">${item.activity_name}${item.batch_name ? '<span style="display:block;font-size:11px;color:#94a3b8;margin-top:2px">券: '+item.batch_name+'</span>' : ''}</div>
           </div>
         </div>
         <div class="drawer-metrics">`;
@@ -510,7 +510,7 @@ function openLayer3(catKey, activityId, brandId) {
   modal.innerHTML = `<div class="bp-modal-content" onclick="event.stopPropagation()">
     <div class="modal-header">
       <div>
-        <div class="modal-title">${emoji} ${item.brand_name} — ${item.activity_name}</div>
+        <div class="modal-title">${emoji} ${item.brand_name} — ${item.activity_name}${item.batch_name ? ' <span style="font-size:13px;color:#64748b;font-weight:400">('+item.batch_name+')</span>' : ''}</div>
         <div class="modal-subtitle">${catKey} | 活动转化漏斗详情</div>
       </div>
       <button class="modal-close" onclick="closeLayer3()">✕</button>
@@ -672,7 +672,7 @@ function generateDiagCard() {
     const clmShare = totalClmPv > 0 ? act.claim_pv / totalClmPv : 0;
     const rdmShare = totalRdmPv > 0 ? act.redeem_pv / totalRdmPv : 0;
     html += `<tr>
-      <td title="${act.activity_name}" style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${act.activity_name}</td>
+      <td title="${act.activity_name}${act.batch_name ? '\n券: '+act.batch_name : ''}" style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${act.activity_name}${act.batch_name ? ' <span style="color:#94a3b8;font-size:10px">('+act.batch_name+')</span>' : ''}</td>
       <td>${fmtNum(act.exposure_pv)}</td><td>${fmtNum(act.claim_pv)}</td><td>${fmtNum(act.redeem_pv)}</td>
       <td>${fmtPct(expShare)}</td><td>${fmtPct(clmShare)}</td><td>${fmtPct(rdmShare)}</td>
       <td class="${act.pv_exposure_claim > (meds.exposure_claim||0) ? 'rate-above' : 'rate-below'}">${fmtPct(act.pv_exposure_claim || (act.exposure_pv > 0 ? act.claim_pv/act.exposure_pv : 0))}</td>
@@ -712,7 +712,7 @@ function generateDiagCard() {
   for (const mk of METRICS) {
     const best = bestItems[mk.key];
     if (best) {
-      html += `<tr><td style="font-weight:500">${mk.label}</td><td style="color:var(--primary);font-weight:600">${fmtPct(best[mk.calcField])}</td><td>${best.brand_name}</td><td title="${best.activity_name}" style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${best.activity_name}</td></tr>`;
+      html += `<tr><td style="font-weight:500">${mk.label}</td><td style="color:var(--primary);font-weight:600">${fmtPct(best[mk.calcField])}</td><td>${best.brand_name}</td><td title="${best.activity_name}${best.batch_name ? '\n券: '+best.batch_name : ''}" style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${best.activity_name}${best.batch_name ? ' <span style="color:#94a3b8;font-size:10px">('+best.batch_name+')</span>' : ''}</td></tr>`;
     }
   }
 

@@ -223,16 +223,34 @@ def read_index_table_with_links(file_id: str) -> list[dict]:
     """
     读取索引表（表1或表5），返回 [{text: ..., url: ...}, ...]
     索引表的特点：每行有一个文本+超链接，指向目标文档
+    注意：A1 也可能是有效数据行（不一定是表头），需要一起读取
     """
     url = export_file(file_id)
     xlsx_path = download_xlsx(url)
     hyperlinks = extract_hyperlinks(xlsx_path)
     rows = parse_xlsx_rows(xlsx_path)
 
-    # 把超链接关联到行——尝试 A 列和 B 列
     result = []
+
+    # 先检查 A1 是否有超链接（导览表 A1 可能就是最新数据行）
+    a1_link = hyperlinks.get("A1", "")
+    if a1_link:
+        # A1 有超链接，需要把它也加进来
+        # 从 xlsx 读 A1 单元格文本
+        import openpyxl
+        wb = openpyxl.load_workbook(xlsx_path, read_only=True, data_only=True)
+        ws = wb.active
+        a1_text = str(ws.cell(row=1, column=1).value or "")
+        wb.close()
+        result.append({
+            "text": a1_text,
+            "url": a1_link,
+            "file_id": extract_file_id_from_url(a1_link) if a1_link else "",
+        })
+
+    # 把超链接关联到行——尝试 A 列和 B 列
     for i, row in enumerate(rows):
-        row_num = i + 2  # 第2行开始（第1行是表头）
+        row_num = i + 2  # 第2行开始（第1行被 parse_xlsx_rows 当表头）
         link = hyperlinks.get(f"A{row_num}", "") or hyperlinks.get(f"B{row_num}", "")
         first_val = list(row.values())[0] if row else ""
         result.append({
