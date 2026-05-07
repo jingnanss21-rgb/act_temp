@@ -156,11 +156,10 @@ function renderSpReview(container, sp, spBrands, brandDaily, activities, allActi
   // ===== A. 概览卡片 =====
   html += `<div id="spr-print-area">`;
   html += `<div style="text-align:center;margin-bottom:16px"><h2 style="font-size:18px;font-weight:700;color:#1e293b;margin:0">${sp} · 服务商复盘</h2><p style="font-size:12px;color:#64748b;margin:4px 0 0">${startDate} ~ ${endDate}</p></div>`;
-  html += `<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px">`;
+  html += `<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:20px">`;
   html += sprCard('在线品牌', online.length, '#059669', '#f0fdf4');
   html += sprCard('流失品牌', lost.length, '#dc2626', '#fef2f2');
   html += sprCard('筹备品牌', prep.length, '#d97706', '#fffbeb');
-  html += sprCard('区间新上线', newOnline.length, '#2563eb', '#eff6ff');
   html += `</div>`;
 
   // ===== B. 服务商品牌 Top3 =====
