@@ -249,11 +249,11 @@ function renderBrandDetailTable(spBrands, brandDaily, activities) {
   const brandAgg = {};
   activities.forEach(a => {
     const bid = a.brand_id;
-    if (!brandAgg[bid]) brandAgg[bid] = { exp: 0, redeem: 0, claim: 0, count: 0 };
+    if (!brandAgg[bid]) brandAgg[bid] = { exp: 0, redeem: 0, claim: 0, actIds: new Set() };
     brandAgg[bid].exp += (a.exposure_pv || 0);
     brandAgg[bid].redeem += (a.redeem_pv || 0);
     brandAgg[bid].claim += (a.claim_pv || 0);
-    brandAgg[bid].count++;
+    if (a.activity_id) brandAgg[bid].actIds.add(a.activity_id);
   });
 
   // 品牌日报里的四级类目名称
@@ -292,7 +292,7 @@ function renderBrandDetailTable(spBrands, brandDaily, activities) {
       <td style="padding:8px;font-weight:600">${b.brand_name || '-'}</td>
       <td style="padding:8px;text-align:center;color:#64748b">${cat}</td>
       <td style="padding:8px;text-align:center"><span style="padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;background:${statusColor}15;color:${statusColor}">${b.brand_status}</span></td>
-      <td style="padding:8px;text-align:center">${agg.count || 0}</td>
+      <td style="padding:8px;text-align:center">${agg.actIds ? agg.actIds.size : 0}</td>
       <td style="padding:8px;text-align:center">${agg.exp ? agg.exp.toLocaleString() : '-'}</td>
       <td style="padding:8px;text-align:center">${agg.claim ? agg.claim.toLocaleString() : '-'}</td>
       <td style="padding:8px;text-align:center">${agg.redeem ? agg.redeem.toLocaleString() : '-'}</td>
