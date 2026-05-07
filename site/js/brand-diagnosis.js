@@ -839,7 +839,7 @@ function renderBenchmark() {
           <div class="dt3-header">
             <span class="dt3-medal" style="color:${medalColors[i]}">${medals[i]}</span>
             <div class="dt3-info">
-              <div class="dt3-brand">${t.brand_name} — ${t.activity_name}</div>
+              <div class="dt3-brand">${t.brand_name} — ${t.activity_name}${t.batch_name ? ' <span style="font-size:11px;color:#94a3b8;font-weight:400">('+t.batch_name+')</span>' : ''}</div>
             </div>
             <div class="dt3-value">${fmtPctDiag(t[mk.key])}</div>
           </div>
