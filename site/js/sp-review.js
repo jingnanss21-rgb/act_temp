@@ -236,13 +236,15 @@ function renderBrandDetailTable(spBrands, brandDaily, activities) {
   const brandCat = {};
   brandDaily.forEach(r => { if (r.category_l4) brandCat[r.brand_id] = r.category_l4; });
 
-  // 主排序: 核销倒序; 次排序: 在线>筹备>流失
+  // 主排序: 状态(在线>筹备>流失); 次排序: 核销倒序
   const statusOrder = { '在线': 0, '筹备中': 1, '流失': 2 };
   const sorted = [...spBrands].sort((a, b) => {
+    const sa = statusOrder[a.brand_status] ?? 9;
+    const sb = statusOrder[b.brand_status] ?? 9;
+    if (sa !== sb) return sa - sb;
     const ra = (brandAgg[a.brand_id] || {}).redeem || 0;
     const rb = (brandAgg[b.brand_id] || {}).redeem || 0;
-    if (rb !== ra) return rb - ra;
-    return (statusOrder[a.brand_status] || 9) - (statusOrder[b.brand_status] || 9);
+    return rb - ra;
   });
 
   let html = `<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px;background:#fff;border-radius:10px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,0.06)">
