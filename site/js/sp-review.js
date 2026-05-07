@@ -184,8 +184,8 @@ function renderSpReview(container, sp, spBrands, brandDaily, activities, allActi
 
   container.innerHTML = html;
 
-  // 渲染趋势图
-  renderSpTrendChart(brandDaily, startDate, endDate);
+  // 渲染趋势图 (延迟确保 DOM 已渲染可见)
+  setTimeout(() => renderSpTrendChart(brandDaily, startDate, endDate), 100);
 }
 
 // ===== 卡片组件 =====
