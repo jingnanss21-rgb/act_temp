@@ -189,20 +189,31 @@ function sprCard(label, value, color, bg) {
 function renderTop3Section(activities, isSp) {
   const CATS = ['茶饮咖啡', '中式快餐', '西式快餐', '正餐', '小吃', '甜品烘焙'];
 
-  // 每条活动已是视图聚合后的单行，直接用 UV 口径计算转化率（和行业最佳实践一致）
-  const items = activities.filter(a => (a.exposure_uv || a.exposure_pv || 0) > 0).map(a => {
+  // 和 best-practice.js 完全一致的计算+异常过滤逻辑
+  const items = activities.filter(a => (a.exposure_uv || 0) > 0).map(a => {
     const eUv = a.exposure_uv || 0;
+    const cUv = a.claim_uv || 0;
     const rUv = a.redeem_uv || 0;
-    return {
-      ...a,
-      exposure_redeem_rate: eUv > 0 ? rUv / eUv : 0,
-    };
-  }).filter(a => a.exposure_redeem_rate > 0 && a.exposure_redeem_rate < 0.10); // 过滤异常(>10%为异常)
+    const exposure_claim_rate = eUv > 0 ? cUv / eUv : 0;
+    const claim_redeem_rate = cUv > 0 ? rUv / cUv : 0;
+    const exposure_redeem_rate = eUv > 0 ? rUv / eUv : 0;
+    const store_redeem_rate = parseFloat(a.claim_to_store_rate_uv) || 0;
+    // 异常判定（同 best-practice RATE_CAPS）
+    const is_anomaly = exposure_claim_rate > 0.40 ||
+      claim_redeem_rate > 0.80 ||
+      exposure_redeem_rate > 0.10 ||
+      store_redeem_rate >= 1.00;
+    return { ...a, exposure_redeem_rate, is_anomaly };
+  }).filter(a => !a.is_anomaly && a.exposure_redeem_rate > 0);
 
   let html = '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px">';
 
   CATS.forEach(cat => {
-    const catItems = items.filter(a => (a.category_name || '') === cat);
+    // 用 includes 匹配类目（和 getCategoryKey 逻辑一致）
+    const catItems = items.filter(a => {
+      const catField = a.category_l4 || a.category_name || '';
+      return catField.includes(cat);
+    });
     const sorted = catItems.sort((a, b) => b.exposure_redeem_rate - a.exposure_redeem_rate);
     const top3 = sorted.slice(0, 3);
 
