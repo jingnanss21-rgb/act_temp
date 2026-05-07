@@ -221,12 +221,13 @@ function renderTop3Section(activities, isSp) {
     html += `<div style="font-size:13px;font-weight:700;color:#1e293b;margin-bottom:10px;border-bottom:1px solid #f1f5f9;padding-bottom:8px">${cat}</div>`;
     top3.forEach((t, i) => {
       const rate = (t.exposure_redeem_rate * 100).toFixed(2);
-      const batchInfo = t.batch_name ? `<span style="font-size:10px;color:#94a3b8"> (${t.batch_name})</span>` : '';
+      const batchLine = t.batch_name ? `<div style="font-size:10px;color:#94a3b8;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">券: ${t.batch_name}</div>` : '';
       html += `<div style="display:flex;align-items:center;gap:8px;padding:6px 0;${i < 2 ? 'border-bottom:1px solid #f8fafc' : ''}">
         <span style="font-size:16px">${medals[i]}</span>
         <div style="flex:1;min-width:0">
           <div style="font-size:12px;font-weight:600;color:#1e293b;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${t.brand_name}</div>
-          <div style="font-size:11px;color:#64748b;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${t.activity_name}${batchInfo}</div>
+          <div style="font-size:11px;color:#64748b;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${t.activity_name}</div>
+          ${batchLine}
         </div>
         <div style="font-size:13px;font-weight:700;color:#2563eb;white-space:nowrap">${rate}%</div>
       </div>`;
@@ -241,7 +242,7 @@ function renderTop3Section(activities, isSp) {
 
 // ===== 品牌明细表 =====
 function renderBrandDetailTable(spBrands, brandDaily, activities) {
-  // 按品牌聚合活动数据
+  // 按品牌聚合活动数据（区间内求和）
   const brandAgg = {};
   activities.forEach(a => {
     const bid = a.brand_id;
@@ -252,13 +253,16 @@ function renderBrandDetailTable(spBrands, brandDaily, activities) {
     brandAgg[bid].count++;
   });
 
-  // 品牌日报里的业态
+  // 品牌日报里的四级类目名称
   const brandCat = {};
   brandDaily.forEach(r => { if (r.category_l4) brandCat[r.brand_id] = r.category_l4; });
 
-  // 按状态排序: 在线 > 流失 > 筹备
-  const statusOrder = { '在线': 0, '流失': 1, '筹备中': 2 };
-  const sorted = [...spBrands].sort((a, b) => (statusOrder[a.brand_status] || 9) - (statusOrder[b.brand_status] || 9));
+  // 按核销倒序
+  const sorted = [...spBrands].sort((a, b) => {
+    const ra = (brandAgg[a.brand_id] || {}).redeem || 0;
+    const rb = (brandAgg[b.brand_id] || {}).redeem || 0;
+    return rb - ra;
+  });
 
   let html = `<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px;background:#fff;border-radius:10px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,0.06)">
     <thead><tr style="background:#f8fafc;border-bottom:2px solid #e2e8f0">
@@ -267,6 +271,7 @@ function renderBrandDetailTable(spBrands, brandDaily, activities) {
       <th style="padding:10px 8px;text-align:center">状态</th>
       <th style="padding:10px 8px;text-align:center">活动数</th>
       <th style="padding:10px 8px;text-align:center">曝光PV</th>
+      <th style="padding:10px 8px;text-align:center">领取PV</th>
       <th style="padding:10px 8px;text-align:center">核销PV</th>
       <th style="padding:10px 8px;text-align:center">曝光核销率</th>
     </tr></thead><tbody>`;
@@ -282,6 +287,7 @@ function renderBrandDetailTable(spBrands, brandDaily, activities) {
       <td style="padding:8px;text-align:center"><span style="padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;background:${statusColor}15;color:${statusColor}">${b.brand_status}</span></td>
       <td style="padding:8px;text-align:center">${agg.count || 0}</td>
       <td style="padding:8px;text-align:center">${agg.exp ? agg.exp.toLocaleString() : '-'}</td>
+      <td style="padding:8px;text-align:center">${agg.claim ? agg.claim.toLocaleString() : '-'}</td>
       <td style="padding:8px;text-align:center">${agg.redeem ? agg.redeem.toLocaleString() : '-'}</td>
       <td style="padding:8px;text-align:center;font-weight:600;color:${agg.exp > 0 ? '#1e293b' : '#94a3b8'}">${rate}</td>
     </tr>`;
