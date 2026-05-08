@@ -35,7 +35,7 @@ function daysUntil(dateStr) {
 }
 
 function alertLevel(days) {
-  if (days === null) return null;
+  if (days === null || days < 0) return null;  // 已过期不预警
   if (days <= 3) return 'red';
   if (days <= 7) return 'yellow';
   return null;
