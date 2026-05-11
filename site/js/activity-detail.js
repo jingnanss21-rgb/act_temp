@@ -528,13 +528,22 @@ function exportDetailCSV() {
 
   const csvRows = [headers.join(',')];
 
+  function csvVal(v) {
+    if (v === null || v === undefined) return '';
+    const s = String(v);
+    if (s.includes(',') || s.includes('"') || s.includes('/') || s.includes('\n')) {
+      return '"' + s.replace(/"/g, '""') + '"';
+    }
+    return s;
+  }
+
   for (const row of filteredData) {
     const vals = [
-      row.category_l4, row.brand_id, `"${row.brand_name}"`, row.store_count, row.w7_avg_txn_count,
+      csvVal(row.category_l4), row.brand_id, csvVal(row.brand_name), row.store_count, row.w7_avg_txn_count,
       fmtRate(row.w7_mini_program_ratio),
-      `"${row.contact_assistant}"`, `"${row.operating_sp}"`, `"${row.owner}"`,
-      row.activity_id, `"${row.activity_name}"`, `"${row.batch_name || ''}"`,
-      fmtPricePower(row.price_power), fmtStock(row.total_stock, row.remain_stock),
+      csvVal(row.contact_assistant), csvVal(row.operating_sp), csvVal(row.owner),
+      row.activity_id, csvVal(row.activity_name), csvVal(row.batch_name || ''),
+      fmtPricePower(row.price_power), csvVal(fmtStock(row.total_stock, row.remain_stock)),
       row.exposure_uv, row.claim_uv, row.redeem_uv,
       fmtRate(row.uv_exposure_claim), fmtRate(row.uv_claim_redeem), fmtRate(row.uv_exposure_redeem),
       row.exposure_pv, row.claim_pv, row.redeem_pv,
