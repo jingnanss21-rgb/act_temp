@@ -209,7 +209,7 @@ function computeCategoryStats() {
     }
 
     // 价格力中位数（原值，如316=3.16%）
-    const ppVals = items.map(i => i.price_power).filter(v => v && v > 0).sort((a, b) => a - b);
+    const ppVals = items.map(i => i.price_power).filter(v => v != null).sort((a, b) => a - b);
     diagCatMedians[cat].price_power = ppVals.length > 0 ? ppVals[Math.floor(ppVals.length / 2)] : 0;
   }
 }
@@ -396,13 +396,13 @@ function renderDiagResult() {
   // 价格力评分（单独计算，P85为基准）
   let brandPricePower = 0, ppCount = 0;
   for (const a of b.activities) {
-    if (a.price_power && a.price_power > 0) { brandPricePower += a.price_power; ppCount++; }
+    if (a.price_power != null) { brandPricePower += a.price_power; ppCount++; }
   }
   brandPricePower = ppCount > 0 ? brandPricePower / ppCount : 0;
   // 类目价格力P85
   const catPPVals = (function() {
     const acts = diagActivities.filter(a => {
-      return a._category === cat && a.price_power && a.price_power > 0;
+      return a._category === cat && a.price_power != null;
     });
     return acts.map(a => a.price_power).sort((a, b2) => a - b2);
   })();
@@ -450,7 +450,7 @@ function renderDiagResult() {
               for (const a of b.activities) {
                 const pp = a.price_power;
                 const ep = a.exposure_pv || 0;
-                if (pp && pp > 0 && ep > 0) { wSum += pp * ep; wDen += ep; }
+                if (pp != null && ep > 0) { wSum += pp * ep; wDen += ep; }
               }
               return wDen > 0 ? (wSum / wDen / 100).toFixed(2) + '%' : '-';
             })()}</div>
@@ -927,7 +927,7 @@ function renderDiagActivities() {
 
     // 价格力（转为小数，与转化率同格式）
     const pp = a.price_power;
-    const ppRate = (pp != null && pp > 0) ? pp / 10000 : 0; // 316 → 0.0316
+    const ppRate = (pp != null) ? pp / 10000 : 0; // 316 → 0.0316, -746 → -0.0746
     const ppMed = (meds.price_power || 0) / 10000;
 
     const allActMetrics = [
