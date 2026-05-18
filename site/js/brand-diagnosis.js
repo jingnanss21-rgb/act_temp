@@ -318,7 +318,7 @@ function runDiagnosis() {
   diagCurrentBrand = {
     brand_id: brandId,
     brand_name: brandActivities[0].brand_name,
-    brand_daily: { report_date: brandActivities[0].report_date || brandActivities[0].latest_date || '-' },
+    brand_daily: { report_date: brandActivities.reduce((max, a) => { const d = a.report_date || a.latest_date || ''; return d > max ? d : max; }, '') || '-' },
     activities: brandActivities,
     category: actCategory || '未知',
   };
