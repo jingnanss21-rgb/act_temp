@@ -318,7 +318,7 @@ function runDiagnosis() {
   diagCurrentBrand = {
     brand_id: brandId,
     brand_name: brandActivities[0].brand_name,
-    brand_daily: { report_date: brandActivities.reduce((max, a) => { const d = a.report_date || a.latest_date || ''; return d > max ? d : max; }, '') || '-' },
+    brand_daily: { report_date: (function(){ var maxD='', minD='9999'; brandActivities.forEach(function(a){ var d=a.report_date||a.latest_date||''; if(d>maxD)maxD=d; }); var p=window.currentPeriod||'7d'; var n=p==='today'?0:p==='30d'?30:7; var sd=new Date(maxD);sd.setDate(sd.getDate()-n); minD=sd.toISOString().substring(0,10); return minD+' ~ '+maxD; })() || '-' },
     activities: brandActivities,
     category: actCategory || '未知',
   };
@@ -437,7 +437,7 @@ function renderDiagResult() {
     <div class="diag-card diag-area-a" style="animation:fadeInUp 0.3s ease">
       <div class="diag-a-left">
         <div class="diag-brand-name">${b.brand_name} <span class="diag-cat-tag" style="background:${getCatColor(cat)}20;color:${getCatColor(cat)}">${cat}</span></div>
-        <div class="diag-date">数据日期：${b.brand_daily.report_date}</div>
+        <div class="diag-date">统计周期：${b.brand_daily.report_date}</div>
         <div style="display:flex;gap:10px;margin-top:12px">
           <div style="flex:1;background:#F8FAFC;border:1px solid #E2E8F0;border-radius:8px;padding:10px 14px;text-align:center">
             <div style="font-size:11px;color:#94A3B8;margin-bottom:2px">活动数</div>
