@@ -425,6 +425,15 @@ function fmtPricePower(val) {
   return (n / 100).toFixed(2) + '%';
 }
 
+function fmtDateStr(val) {
+  if (!val || val === '-') return '-';
+  const s = String(val).replace(/[-/]/g, '').trim();
+  if (s.length === 8) {
+    return s.slice(0, 4) + '-' + s.slice(4, 6) + '-' + s.slice(6, 8);
+  }
+  return val;
+}
+
 function renderDetailTable() {
   const tbody = document.getElementById('detail-table-body');
   const total = filteredData.length;
@@ -458,8 +467,10 @@ function renderDetailTable() {
       <td>${row.operating_sp}</td>
       <td>${row.owner}</td>
       <td>${row.activity_id}</td>
-      <td title="${row.activity_name}" style="max-width:180px;overflow:hidden;text-overflow:ellipsis">${row.activity_name}</td>
-      <td title="${row.batch_name}" style="max-width:120px;overflow:hidden;text-overflow:ellipsis">${row.batch_name || '-'}</td>
+      <td title="${row.activity_name}" style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${row.activity_name}</td>
+      <td title="${row.batch_name}" style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${row.batch_name || '-'}</td>
+      <td>${fmtDateStr(row.start_date)}</td>
+      <td>${fmtDateStr(row.end_date)}</td>
       <td>${fmtPricePower(row.price_power)}</td>
       <td>${fmtStock(row.total_stock, row.remain_stock)}</td>
       <td>${fmtNum(row.exposure_uv)}</td>
@@ -478,7 +489,7 @@ function renderDetailTable() {
       <td>${fmtStoreRate(row.store_below_threshold)}</td>
     </tr>`;
   }
-  tbody.innerHTML = html || '<tr><td colspan="28" style="text-align:center;padding:32px;color:var(--text-muted)">暂无数据</td></tr>';
+  tbody.innerHTML = html || '<tr><td colspan="30" style="text-align:center;padding:32px;color:var(--text-muted)">暂无数据</td></tr>';
 
   renderPagination(total, totalPages);
 }
@@ -520,7 +531,7 @@ function exportDetailCSV() {
   const headers = [
     '类目', '品牌ID', '品牌名称', '门店数', '日均交易笔数', '小程序占比',
     '对接助理', '服务商', '负责人',
-    '活动ID', '活动名称', '批次名称', '价格力', '库存(剩余/总)',
+    '活动ID', '活动名称', '批次名称', '活动开始时间', '活动结束时间', '价格力', '库存(剩余/总)',
     '曝光UV', '领取UV', '核销UV', 'UV曝光领取率', 'UV领取核销率', 'UV曝光核销率',
     '曝光PV', '领取PV', '核销PV', 'PV曝光领取率', 'PV领取核销率', 'PV曝光核销率',
     '到店核销率', '未达门槛占比',
@@ -543,6 +554,7 @@ function exportDetailCSV() {
       fmtRate(row.w7_mini_program_ratio),
       csvVal(row.contact_assistant), csvVal(row.operating_sp), csvVal(row.owner),
       row.activity_id, csvVal(row.activity_name), csvVal(row.batch_name || ''),
+      fmtDateStr(row.start_date), fmtDateStr(row.end_date),
       fmtPricePower(row.price_power), csvVal(fmtStock(row.total_stock, row.remain_stock)),
       row.exposure_uv, row.claim_uv, row.redeem_uv,
       fmtRate(row.uv_exposure_claim), fmtRate(row.uv_claim_redeem), fmtRate(row.uv_exposure_redeem),
