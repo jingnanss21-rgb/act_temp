@@ -1,32 +1,38 @@
 /**
  * activity-alerts.js - 活动预警模块（Tab3）
- * 到期预警：活动结束日期距今 ≤7天（统一阈值，不分红黄）
- * 限领配置预警：单用户<100 或 单日<10000
+ * 到期预警：活动结束日期距今 ≤7天（支持 by 3天/7天 筛选）
+ * 限领配置预警：单用户<100 或 单日<10000（支持阈值筛选）
  * 支持按服务商、对接助理多选筛选 + 置顶品牌筛选
  */
 
 let alertsData = [];
-let alertMerchantMap = {};  // brand_id → { contact_assistant, operating_sp }
-let alertSpOwnerMap = {};   // sp_name → owner
+let alertMerchantMap = {};
+let alertSpOwnerMap = {};
 let alertAllExpiry = [];
-let alertAllLimit = [];     // 限领配置预警
+let alertAllLimit = [];
 let alertFilterAssistant = new Set();
 let alertFilterSP = new Set();
-let alertPinnedBrandIds = new Set();  // 置顶品牌
-let alertPinnedOnly = false;          // 是否只看置顶
+let alertPinnedBrandIds = new Set();
+let alertPinnedOnly = false;
 
-// 限领预警阈值
-const LIMIT_ALERT_THRESHOLDS = {
-  single_user: 100,    // 单用户限领 < 100 触发
-  daily:       10000,  // 单日限领   < 10000 触发
+// ── 到期预警筛选状态 ──
+let expiryDaysFilter = 7;  // 默认 <=7天；可选 3 / 7
+
+// ── 限领预警筛选状态 ──
+let limitUserFilter = 100;    // 单人限领阈值；可选 5/10/100
+let limitDailyFilter = 10000; // 单日限领阈值；可选 1000/3000/5000/10000
+
+// 限领预警阈值（用于数据收集，取最大范围）
+const LIMIT_COLLECT_THRESHOLDS = {
+  single_user: 100,
+  daily:       10000,
 };
 
-// 判断"是否设了限"：null/0/超大值都视为无限制，不参与告警
 function _isLimitConfigured(v) {
   if (v === null || v === undefined || v === '') return false;
   const n = parseFloat(v);
   if (isNaN(n) || n <= 0) return false;
-  if (n >= 100000000) return false;  // 1亿以上视为无限
+  if (n >= 100000000) return false;
   return true;
 }
 
@@ -66,13 +72,11 @@ async function loadActivityAlerts() {
         .select('brand_id').limit(100),
     ]);
 
-    // 构建置顶品牌集合
     alertPinnedBrandIds = new Set();
     for (const p of (pinnedResult.data || [])) {
       if (p.brand_id) alertPinnedBrandIds.add(String(p.brand_id));
     }
 
-    // 构建关联 map
     alertMerchantMap = {};
     for (const m of (merchantResult.data || [])) {
       if (m.brand_id) {
@@ -100,40 +104,37 @@ async function loadActivityAlerts() {
         operating_sp: merchant.operating_sp || '-',
       };
 
-      // 到期预警：统一 <=7 天阈值
+      // 到期预警：收集 <=7 天的全部（筛选在渲染时做）
       const daysLeft = daysUntil(act.end_date);
       if (daysLeft !== null && daysLeft >= 0 && daysLeft <= 7) {
         alertAllExpiry.push({ ...enriched, days_left: daysLeft });
       }
 
-      // 限领配置预警（单用户<100 或 单日<10000，0/null/超大值视为不限不告警）
+      // 限领预警：收集所有 <100（单人）或 <10000（单日）的
       const userLimit = act.single_user_limit;
       const dayLimit  = act.daily_limit;
-      const userTooLow = _isLimitConfigured(userLimit) && parseFloat(userLimit) < LIMIT_ALERT_THRESHOLDS.single_user;
-      const dayTooLow  = _isLimitConfigured(dayLimit)  && parseFloat(dayLimit)  < LIMIT_ALERT_THRESHOLDS.daily;
+      const userConfigured = _isLimitConfigured(userLimit);
+      const dayConfigured  = _isLimitConfigured(dayLimit);
+      const userTooLow = userConfigured && parseFloat(userLimit) < LIMIT_COLLECT_THRESHOLDS.single_user;
+      const dayTooLow  = dayConfigured  && parseFloat(dayLimit)  < LIMIT_COLLECT_THRESHOLDS.daily;
       if (userTooLow || dayTooLow) {
         alertAllLimit.push({
           ...enriched,
           single_user_limit: userLimit,
           daily_limit: dayLimit,
-          user_too_low: userTooLow,
-          day_too_low: dayTooLow,
+          user_val: userConfigured ? parseFloat(userLimit) : Infinity,
+          day_val: dayConfigured ? parseFloat(dayLimit) : Infinity,
         });
       }
     }
 
     alertAllExpiry.sort((a, b) => a.days_left - b.days_left);
-    // 限领预警按"两种都偏低"在前、单用户限领升序为辅排
     alertAllLimit.sort((a, b) => {
-      const sevA = (a.user_too_low ? 1 : 0) + (a.day_too_low ? 1 : 0);
-      const sevB = (b.user_too_low ? 1 : 0) + (b.day_too_low ? 1 : 0);
-      if (sevB !== sevA) return sevB - sevA;
-      const ua = parseFloat(a.single_user_limit) || Infinity;
-      const ub = parseFloat(b.single_user_limit) || Infinity;
+      const ua = a.user_val !== undefined ? a.user_val : Infinity;
+      const ub = b.user_val !== undefined ? b.user_val : Infinity;
       return ua - ub;
     });
 
-    // Reset filters
     alertFilterAssistant = new Set();
     alertFilterSP = new Set();
 
@@ -153,10 +154,22 @@ function filterAlertItems(items) {
   });
 }
 
+function getFilteredExpiry() {
+  return filterAlertItems(alertAllExpiry).filter(a => a.days_left <= expiryDaysFilter);
+}
+
+function getFilteredLimit() {
+  return filterAlertItems(alertAllLimit).filter(a => {
+    const userHit = a.user_val < limitUserFilter;
+    const dayHit  = a.day_val < limitDailyFilter;
+    return userHit || dayHit;
+  });
+}
+
 function renderAlerts() {
   const container = document.getElementById('alert-container');
-  const expiryAlerts = filterAlertItems(alertAllExpiry);
-  const limitAlerts = filterAlertItems(alertAllLimit);
+  const expiryAlerts = getFilteredExpiry();
+  const limitAlerts = getFilteredLimit();
 
   const expiryCount = expiryAlerts.length;
   const limitCount = limitAlerts.length;
@@ -167,35 +180,40 @@ function renderAlerts() {
   const sps = [...new Set(allItems.map(a => a.operating_sp).filter(v => v && v !== '-'))].sort();
 
   let html = `<div class="alert-page" style="padding:16px 32px">
-    <!-- 筛选栏 -->
-    <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px">
+    <!-- 全局筛选栏 -->
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap">
       <div class="multi-select-wrap" id="alert-ms-assistant"></div>
       <div class="multi-select-wrap" id="alert-ms-sp"></div>
       <label style="display:inline-flex;align-items:center;gap:4px;font-size:13px;color:#475569;cursor:pointer">
         <input type="checkbox" id="alert-pinned-only" onchange="onAlertPinnedChange()" ${alertPinnedOnly ? 'checked' : ''}> 只看置顶品牌
       </label>
-      <span style="margin-left:auto;font-size:12px;color:#94A3B8">
-        共${alertsData.length}个活动
-      </span>
+      <span style="margin-left:auto;font-size:12px;color:#94A3B8">共${alertsData.length}个活动</span>
     </div>
 
     <!-- 汇总卡片 -->
     <div class="alert-summary">
       <div class="alert-summary-card" style="border-left:4px solid #D97706">
-        <h3>⏰ 即将到期（≤7天）</h3>
+        <h3>⏰ 即将到期</h3>
         <div class="alert-count ${expiryCount > 0 ? 'yellow' : 'green'}">${expiryCount}</div>
-        <div style="font-size:12px;color:#94A3B8">结束日期距今 ≤7 天</div>
+        <div style="font-size:12px;color:#94A3B8">≤${expiryDaysFilter}天</div>
       </div>
       <div class="alert-summary-card" style="border-left:4px solid #EA580C">
         <h3>🚦 限领配置偏低</h3>
         <div class="alert-count ${limitCount > 0 ? 'yellow' : 'green'}">${limitCount}</div>
-        <div style="font-size:12px;color:#94A3B8">单用户&lt;100 或 单日&lt;10000</div>
+        <div style="font-size:12px;color:#94A3B8">单人&lt;${limitUserFilter} 或 单日&lt;${limitDailyFilter}</div>
       </div>
     </div>
 
     <!-- 到期预警 -->
     <div class="alert-col" style="margin-top:16px">
-      <div class="alert-col-header">⏰ 活动到期预警 · 结束日期距今 ≤7天 (${expiryAlerts.length})</div>
+      <div class="alert-col-header" style="display:flex;align-items:center;justify-content:space-between">
+        <span>⏰ 活动到期预警 (${expiryAlerts.length})</span>
+        <div class="alert-filter-pills">
+          <span style="font-size:12px;color:#64748B;margin-right:6px">到期天数≤</span>
+          <button class="pill-btn ${expiryDaysFilter === 3 ? 'active' : ''}" onclick="setExpiryFilter(3)">3天</button>
+          <button class="pill-btn ${expiryDaysFilter === 7 ? 'active' : ''}" onclick="setExpiryFilter(7)">7天</button>
+        </div>
+      </div>
       <div class="alert-col-body">
         ${expiryAlerts.length === 0 ? '<div class="alert-empty">暂无到期预警 🎉</div>' : ''}
         ${expiryAlerts.map(a => `
@@ -216,13 +234,33 @@ function renderAlerts() {
 
     <!-- 限领配置预警 -->
     <div class="alert-col" style="margin-top:16px">
-      <div class="alert-col-header">🚦 限领配置预警 · 单用户限领&lt;100 或 单日限领&lt;10000 (${limitAlerts.length})</div>
+      <div class="alert-col-header" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">
+        <span>🚦 限领配置预警 (${limitAlerts.length})</span>
+        <div class="alert-filter-pills" style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+          <div style="display:flex;align-items:center;gap:4px">
+            <span style="font-size:12px;color:#64748B">单人&lt;</span>
+            <button class="pill-btn ${limitUserFilter === 5 ? 'active' : ''}" onclick="setLimitUserFilter(5)">5</button>
+            <button class="pill-btn ${limitUserFilter === 10 ? 'active' : ''}" onclick="setLimitUserFilter(10)">10</button>
+            <button class="pill-btn ${limitUserFilter === 100 ? 'active' : ''}" onclick="setLimitUserFilter(100)">100</button>
+          </div>
+          <div style="display:flex;align-items:center;gap:4px">
+            <span style="font-size:12px;color:#64748B">单日&lt;</span>
+            <button class="pill-btn ${limitDailyFilter === 1000 ? 'active' : ''}" onclick="setLimitDailyFilter(1000)">1千</button>
+            <button class="pill-btn ${limitDailyFilter === 3000 ? 'active' : ''}" onclick="setLimitDailyFilter(3000)">3千</button>
+            <button class="pill-btn ${limitDailyFilter === 5000 ? 'active' : ''}" onclick="setLimitDailyFilter(5000)">5千</button>
+            <button class="pill-btn ${limitDailyFilter === 10000 ? 'active' : ''}" onclick="setLimitDailyFilter(10000)">1万</button>
+          </div>
+        </div>
+      </div>
       <div class="alert-col-body">
         ${limitAlerts.length === 0 ? '<div class="alert-empty">暂无限领配置预警 🎉</div>' : ''}
-        ${limitAlerts.map(a => `
+        ${limitAlerts.map(a => {
+          const userTooLow = a.user_val < limitUserFilter;
+          const dayTooLow = a.day_val < limitDailyFilter;
+          return `
           <div class="alert-item level-yellow" style="border-left-color:#EA580C">
             <div class="alert-badge yellow" style="background:#FFF7ED;color:#C2410C;border-color:#FED7AA">
-              ${a.user_too_low && a.day_too_low ? '双低' : (a.user_too_low ? '单用户' : '单日')}
+              ${userTooLow && dayTooLow ? '双低' : (userTooLow ? '单人' : '单日')}
             </div>
             <div class="alert-info">
               <div class="alert-brand">${a.brand_name || '-'} <span style="font-size:11px;color:#94A3B8;font-weight:400">${a.brand_id || ''}</span></div>
@@ -230,23 +268,40 @@ function renderAlerts() {
             </div>
             <div class="alert-detail">
               ${a.contact_assistant !== '-' ? '<span style="color:#2563EB">' + a.contact_assistant + '</span> · ' : ''}${a.operating_sp !== '-' ? a.operating_sp + '<br>' : ''}
-              单用户 <strong style="color:${a.user_too_low ? '#DC2626' : '#475569'}">${fmtLimitVal(a.single_user_limit)}</strong>
-              · 单日 <strong style="color:${a.day_too_low ? '#DC2626' : '#475569'}">${fmtLimitVal(a.daily_limit)}</strong>
+              单人 <strong style="color:${userTooLow ? '#DC2626' : '#475569'}">${fmtLimitVal(a.single_user_limit)}</strong>
+              · 单日 <strong style="color:${dayTooLow ? '#DC2626' : '#475569'}">${fmtLimitVal(a.daily_limit)}</strong>
             </div>
-          </div>
-        `).join('')}
+          </div>`;
+        }).join('')}
       </div>
     </div>
   </div>`;
 
   container.innerHTML = html;
 
-  // 构建多选筛选器
   buildAlertMultiSelect('alert-ms-assistant', '对接助理', assistants, alertFilterAssistant);
   buildAlertMultiSelect('alert-ms-sp', '服务商', sps, alertFilterSP);
 }
 
-// 限领值的展示格式（为 0/未配置 显示"不限"）
+// ── 筛选器事件 ──
+
+function setExpiryFilter(days) {
+  expiryDaysFilter = days;
+  renderAlerts();
+}
+
+function setLimitUserFilter(val) {
+  limitUserFilter = val;
+  renderAlerts();
+}
+
+function setLimitDailyFilter(val) {
+  limitDailyFilter = val;
+  renderAlerts();
+}
+
+// ── 工具函数 ──
+
 function fmtLimitVal(v) {
   if (v === null || v === undefined || v === '') return '-';
   const n = parseFloat(v);
@@ -277,7 +332,6 @@ function buildAlertMultiSelect(containerId, label, options, stateSet) {
 function toggleAlertDropdown(containerId) {
   const dd = document.getElementById('dd-' + containerId);
   dd?.classList.toggle('show');
-  // 关闭其他
   document.querySelectorAll('#alert-container .multi-select-dropdown').forEach(el => {
     if (el.id !== 'dd-' + containerId) el.classList.remove('show');
   });
