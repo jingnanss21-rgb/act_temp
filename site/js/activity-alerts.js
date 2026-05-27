@@ -98,6 +98,16 @@ async function loadActivityAlerts() {
     for (const act of data) {
       const bid = String(act.brand_id);
       const merchant = alertMerchantMap[bid] || {};
+
+      // 过滤已结束活动：end_date < latest_date（日报周期）说明活动已结束，不展示
+      if (act.end_date && act.latest_date) {
+        const endNorm = String(act.end_date).replace(/[-/]/g, '').trim();  // "20260516"
+        const latestNorm = String(act.latest_date).replace(/[-/]/g, '').trim(); // "20260526"
+        if (endNorm.length === 8 && latestNorm.length === 8 && endNorm < latestNorm) {
+          continue; // 活动已结束，跳过
+        }
+      }
+
       const enriched = {
         ...act,
         contact_assistant: merchant.contact_assistant || '-',

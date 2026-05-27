@@ -148,6 +148,15 @@ async function loadActivityDetail() {
       const bid = String(act.brand_id);
       if (!trackedBrandIds.has(bid)) continue; // 过滤掉不在跟进表的
 
+      // 过滤已结束活动：end_date < latest_date 说明活动已结束
+      if (act.end_date && act.latest_date) {
+        const endNorm = String(act.end_date).replace(/[-/]/g, '').trim();
+        const latestNorm = String(act.latest_date).replace(/[-/]/g, '').trim();
+        if (endNorm.length === 8 && latestNorm.length === 8 && endNorm < latestNorm) {
+          continue;
+        }
+      }
+
       const brand = brandMap[bid] || {};
       const merchant = merchantMap[bid] || {};
       const eUv = act.exposure_uv || 0;
