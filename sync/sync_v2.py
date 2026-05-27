@@ -3,16 +3,21 @@ sync_v2.py - V2 每日活动快照同步脚本
 独立于 sync_all.py，复用 doc_reader.py 和 supabase_writer.py
 
 用法:
-  python3 sync_v2.py              # 同步所有日期（导览表中的全部链接）
+  python3 sync_v2.py              # 同步所有日期（按日期自动分流：>=2026-05-26 走 iWiki，否则走腾讯文档）
   python3 sync_v2.py --latest     # 只同步最新一天
-  python3 sync_v2.py --date 0420  # 只同步指定日期（匹配导览文本）
+  python3 sync_v2.py --date 0420  # 腾讯文档源：匹配导览文本中包含该串的条目
+                                  # iWiki 源 + YYYY-MM-DD 写法：直接定位某天
 
-数据源: 导览表 DWWtkT0Rrd2pCSnV1 → A列超链接 → 逐张日表
+数据源:
+  - 旧（report_date < 2026-05-26）: 腾讯文档导览表 DWWhYU3FrWXhuSHhu → A列超链接 → 日表
+  - 新（report_date >= 2026-05-26）: iWiki 页面 4020417529 → MMDD_餐饮活动日报.csv
+
 目标表: tem_activity_daily (activity_id + report_date 为主键)
 """
 import os
 import re
 import argparse
+from datetime import date as _date_cls, datetime
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -26,10 +31,17 @@ from doc_reader import (
     extract_file_id_from_url,
 )
 from supabase_writer import get_client, upsert_batch
+from iwiki_activity_loader import (
+    load_iwiki_activity_attachments,
+    load_activity_daily_from_iwiki,
+)
 
 
-# 导览表 file_id
+# 旧腾讯文档导览表 file_id（< 2026-05-26 的历史日表都走这里）
 NAV_FILE_ID = "DWWhYU3FrWXhuSHhu"
+
+# 切换日期：从这一天起走 iWiki CSV 数据源
+IWIKI_CUTOFF_DATE = _date_cls(2026, 5, 26)
 
 # 底表字段 → DB 列名（兼容新旧两版字段名）
 FIELD_MAP = {
@@ -68,6 +80,9 @@ FIELD_MAP = {
     # 新增券信息
     "优惠门槛":     "threshold_amount",
     "优惠金额":     "discount_amount",
+    # 限领字段（iWiki CSV 新增的 P/Q 列；腾讯文档老底表没有此列）
+    "单用户限领":   "single_user_limit",
+    "单日限领":     "daily_limit",
 }
 
 # 备选字段名（底表可能有不同的列名格式）
@@ -207,21 +222,204 @@ def _map_row(row: dict, report_date: str):
     record["redeem_to_store_rate_uv"] = _safe_numeric(record.get("redeem_to_store_rate_uv"))
     record["store_below_threshold"] = _safe_numeric(record.get("store_below_threshold"))
 
+    # 限领字段：BIGINT，老底表没这两列时存 NULL（不要存 0，否则会被预警逻辑误判）
+    raw_user_limit = record.get("single_user_limit")
+    raw_daily_limit = record.get("daily_limit")
+    record["single_user_limit"] = _safe_int(raw_user_limit) if raw_user_limit not in (None, "") else None
+    record["daily_limit"]       = _safe_int(raw_daily_limit) if raw_daily_limit not in (None, "") else None
+
     return record
+
+
+def _is_iwiki_date(report_date: str) -> bool:
+    """判断给定 report_date (YYYY-MM-DD) 是否走 iWiki 源"""
+    try:
+        d = datetime.strptime(report_date, "%Y-%m-%d").date()
+        return d >= IWIKI_CUTOFF_DATE
+    except (ValueError, TypeError):
+        return False
+
+
+def _sync_one_date_from_iwiki(client, report_date: str, attachments: dict) -> int:
+    """
+    从 iWiki 拉单天数据并写库，返回写入条数。
+    """
+    print(f"\n  [iWiki 源] 处理: {report_date}")
+    try:
+        rows = load_activity_daily_from_iwiki(report_date, attachments)
+    except Exception as e:
+        print(f"    ✗ 加载失败: {e}")
+        return 0
+
+    if not rows:
+        print("    ⚠ CSV 无数据，跳过")
+        return 0
+
+    sample_keys = list(rows[0].keys())[:8]
+    print(f"    字段预览: {sample_keys}")
+
+    records = []
+    for row in rows:
+        rec = _map_row(row, report_date)
+        if rec:
+            records.append(rec)
+    print(f"    有效记录: {len(records)} 条")
+
+    if records:
+        upsert_batch(
+            client, "tem_activity_daily", records,
+            conflict_columns=["activity_id", "report_date"],
+        )
+    return len(records)
+
+
+def _sync_one_date_from_doc(client, file_id: str, report_date: str, label: str) -> int:
+    """
+    从腾讯文档拉单天数据并写库，返回写入条数。
+    """
+    print(f"\n  [腾讯文档源] 处理: {label} → date={report_date} (file_id={file_id})")
+    try:
+        rows = read_target_sheet(file_id, header_row=1, data_start_row=2)
+        print(f"    获取到 {len(rows)} 行, {len(rows[0]) if rows else 0} 列")
+
+        if rows:
+            sample_keys = list(rows[0].keys())[:8]
+            print(f"    字段预览: {sample_keys}")
+
+        records = []
+        for row in rows:
+            rec = _map_row(row, report_date)
+            if rec:
+                records.append(rec)
+        print(f"    有效记录: {len(records)} 条")
+
+        if records:
+            upsert_batch(
+                client, "tem_activity_daily", records,
+                conflict_columns=["activity_id", "report_date"],
+            )
+        return len(records)
+    except Exception as e:
+        print(f"    ✗ 处理失败: {e}")
+        import traceback
+        traceback.print_exc()
+        return 0
 
 
 def sync_v2(latest_only: bool = False, date_filter: str = ""):
     """
     V2 同步主流程
-    1. 读导览表拿到所有日表链接
-    2. 逐张导出解析
-    3. upsert 到 tem_activity_daily
+    路由规则：
+      - report_date >= 2026-05-26 → iWiki CSV
+      - report_date <  2026-05-26 → 腾讯文档导览表
+    两边都会按 latest_only / date_filter 收敛要处理的日期。
     """
     print("\n" + "=" * 60)
-    print("V2 同步 tem_activity_daily（每日活动快照）")
+    print("V2 同步 tem_activity_daily（每日活动快照·混合源）")
+    print(f"切换日期：>= {IWIKI_CUTOFF_DATE} 走 iWiki，否则走腾讯文档")
     print("=" * 60)
 
-    # 第一跳：读导览表（无表头，每行都是数据+超链接）
+    client = get_client()
+    total_written = 0
+
+    # ── 1. iWiki 数据源（>= 2026-05-26）──
+    iwiki_processed_dates: set = set()
+    try:
+        iwiki_atts = load_iwiki_activity_attachments()
+    except Exception as e:
+        print(f"\n[警告] iWiki 附件列表加载失败：{e}\n  → 跳过 iWiki 源，仅同步腾讯文档源")
+        iwiki_atts = {}
+
+    if iwiki_atts:
+        iwiki_dates = sorted(iwiki_atts.keys())  # YYYY-MM-DD 升序
+        # 只取 cutoff 之后的
+        iwiki_dates = [d for d in iwiki_dates if _is_iwiki_date(d)]
+
+        if latest_only and iwiki_dates:
+            iwiki_dates = [iwiki_dates[-1]]
+            print(f"\n[iWiki] --latest → 只处理 {iwiki_dates[0]}")
+        elif date_filter:
+            # 支持 "2026-05-26" 或 "0526" 两种写法
+            normalized = _normalize_date_filter(date_filter)
+            iwiki_dates = [d for d in iwiki_dates if d == normalized] if normalized \
+                else [d for d in iwiki_dates if date_filter in d]
+            print(f"\n[iWiki] 过滤 '{date_filter}' → {len(iwiki_dates)} 个日期")
+        else:
+            print(f"\n[iWiki] 待处理 {len(iwiki_dates)} 个日期: "
+                  f"{iwiki_dates[0] if iwiki_dates else '(无)'} ~ "
+                  f"{iwiki_dates[-1] if iwiki_dates else '(无)'}")
+
+        for d in iwiki_dates:
+            total_written += _sync_one_date_from_iwiki(client, d, iwiki_atts)
+            iwiki_processed_dates.add(d)
+
+    # ── 2. 腾讯文档源（< 2026-05-26）──
+    # 如果 iWiki 路径已经处理过最新一天 / 命中过 date_filter，且用户用 --latest，
+    # 就不必再走腾讯文档；否则继续按导览表做老路径。
+    if latest_only and iwiki_processed_dates:
+        # --latest 在 iWiki 已经处理过，老数据不再重跑
+        pass
+    else:
+        try:
+            doc_entries = _load_doc_nav_entries()
+        except Exception as e:
+            print(f"\n[腾讯文档] 导览表加载失败：{e}")
+            doc_entries = []
+
+        # 计算每条 entry 的 report_date，并过滤到 < cutoff 的
+        for entry in doc_entries:
+            entry["report_date"] = _extract_report_date(entry["text"])
+
+        valid_doc = [
+            e for e in doc_entries
+            if e["file_id"] and e["url"] and e["report_date"]
+            and not _is_iwiki_date(e["report_date"])
+        ]
+        print(f"\n[腾讯文档] 过滤后待处理 {len(valid_doc)} 条 (cutoff < {IWIKI_CUTOFF_DATE})")
+
+        if not valid_doc:
+            pass
+        elif latest_only:
+            # 历史最新的一条（按 report_date 倒序）
+            valid_doc.sort(key=lambda e: e["report_date"], reverse=True)
+            valid_doc = [valid_doc[0]]
+            print(f"  --latest → 只处理 {valid_doc[0]['text']}")
+        elif date_filter:
+            filtered = [e for e in valid_doc if date_filter in e["text"]]
+            if not filtered:
+                print(f"  ⚠ 未找到包含 '{date_filter}' 的条目")
+                valid_doc = []
+            else:
+                valid_doc = filtered
+                print(f"  → 匹配到 {len(valid_doc)} 条")
+
+        for entry in valid_doc:
+            total_written += _sync_one_date_from_doc(
+                client,
+                file_id=entry["file_id"],
+                report_date=entry["report_date"],
+                label=entry["text"],
+            )
+
+    print(f"\n{'=' * 60}")
+    print(f"V2 同步完成！共写入 {total_written} 条记录")
+    print(f"{'=' * 60}")
+
+
+def _normalize_date_filter(s: str) -> str:
+    """把 '0526' 或 '2026-05-26' 统一成 'YYYY-MM-DD'，无法识别返回空"""
+    s = (s or "").strip()
+    if re.fullmatch(r"\d{4}-\d{2}-\d{2}", s):
+        return s
+    if re.fullmatch(r"\d{4}", s):  # MMDD
+        return f"{datetime.now().year}-{s[:2]}-{s[2:]}"
+    if re.fullmatch(r"\d{8}", s):  # YYYYMMDD
+        return f"{s[:4]}-{s[4:6]}-{s[6:]}"
+    return ""
+
+
+def _load_doc_nav_entries() -> list:
+    """读取腾讯文档导览表，返回 [{text, url, file_id}, ...]"""
     url = export_file(NAV_FILE_ID)
     xlsx_path = download_xlsx(url)
     hyperlinks = extract_hyperlinks(xlsx_path)
@@ -229,7 +427,7 @@ def sync_v2(latest_only: bool = False, date_filter: str = ""):
     from openpyxl import load_workbook
     wb = load_workbook(xlsx_path, data_only=True)
     ws = wb.worksheets[0]
-    nav_entries = []
+    entries = []
     for row_num in range(1, (ws.max_row or 100) + 1):
         text = ws.cell(row_num, 1).value
         if not text:
@@ -237,74 +435,10 @@ def sync_v2(latest_only: bool = False, date_filter: str = ""):
         text = str(text).strip()
         link = hyperlinks.get(f"A{row_num}", "")
         fid = extract_file_id_from_url(link) if link else ""
-        nav_entries.append({"text": text, "url": link, "file_id": fid})
+        entries.append({"text": text, "url": link, "file_id": fid})
     wb.close()
     os.unlink(xlsx_path)
-
-    valid = [e for e in nav_entries if e["file_id"] and e["url"]]
-    print(f"  导览表共 {len(nav_entries)} 条，有效 {len(valid)} 条")
-
-    if not valid:
-        print("  ⚠ 无有效条目，退出")
-        return
-
-    # 过滤
-    if latest_only:
-        valid = [valid[0]]
-        print(f"  → 只同步最新: {valid[0]['text']}")
-    elif date_filter:
-        filtered = [e for e in valid if date_filter in e["text"]]
-        if not filtered:
-            print(f"  ⚠ 未找到包含 '{date_filter}' 的条目")
-            return
-        valid = filtered
-        print(f"  → 匹配到 {len(valid)} 条含 '{date_filter}' 的条目")
-
-    client = get_client()
-    total_written = 0
-
-    for entry in valid:
-        text = entry["text"]
-        file_id = entry["file_id"]
-        report_date = _extract_report_date(text)
-
-        print(f"\n  处理: {text} → date={report_date} (file_id={file_id})")
-
-        if not report_date:
-            print("    ⚠ 无法提取日期，跳过")
-            continue
-
-        try:
-            # 第二跳：导出并解析日表
-            rows = read_target_sheet(file_id, header_row=1, data_start_row=2)
-            print(f"    获取到 {len(rows)} 行, {len(rows[0]) if rows else 0} 列")
-
-            if rows:
-                # 打印前几个字段名方便调试
-                sample_keys = list(rows[0].keys())[:8]
-                print(f"    字段预览: {sample_keys}")
-
-            records = []
-            for row in rows:
-                rec = _map_row(row, report_date)
-                if rec:
-                    records.append(rec)
-
-            print(f"    有效记录: {len(records)} 条")
-
-            if records:
-                upsert_batch(client, "tem_activity_daily", records,
-                             conflict_columns=["activity_id", "report_date"])
-                total_written += len(records)
-
-        except Exception as e:
-            print(f"    ✗ 处理失败: {e}")
-            import traceback
-            traceback.print_exc()
-
-    print(f"\n{'=' * 60}")
-    print(f"V2 同步完成！共写入 {total_written} 条记录")
-    print(f"{'=' * 60}")
+    return entries
 
 
 def main():

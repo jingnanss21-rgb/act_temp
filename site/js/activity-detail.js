@@ -56,6 +56,7 @@ let merchantMap = {};     // brand_id → { contact_assistant, operating_sp }
 let spOwnerMap = {};      // sp_name → owner (负责人)
 let kaOwnerMap = {};      // brand_id → owner (KA负责人)
 let trackedBrandIds = new Set(); // 跟进表里有的品牌id
+let pinnedBrandIds = new Set();  // 置顶品牌id（来自 brand_top_records）
 
 // 多选筛选状态
 let filterAssistants = new Set();
@@ -74,7 +75,7 @@ async function loadActivityDetail() {
   try {
     const viewName = getViewName();
     // 并行加载所有数据
-    const [actData, brandResult, merchantResult, spResult, kaResult] = await Promise.all([
+    const [actData, brandResult, merchantResult, spResult, kaResult, pinnedResult] = await Promise.all([
       fetchAllFromView(viewName, '*'),
       supabaseClient.from('tem_brand_daily')
         .select('brand_id, category_l4, store_count, w7_avg_txn_count, w7_mini_program_ratio, report_date')
@@ -85,6 +86,8 @@ async function loadActivityDetail() {
         .select('sp_name, owner').limit(500),
       supabaseClient.from('tem_ka_assignments')
         .select('brand_id, owner').limit(500),
+      supabaseClient.from('brand_top_records')
+        .select('brand_id').limit(100),
     ]);
 
     // 活动去重：同一 activity_id 只保留一条
@@ -101,6 +104,12 @@ async function loadActivityDetail() {
     const merchantRows = merchantResult.data || [];
     const spRows = spResult.data || [];
     const kaRows = kaResult.data || [];
+
+    // 构建置顶品牌集合
+    pinnedBrandIds = new Set();
+    for (const p of (pinnedResult.data || [])) {
+      if (p.brand_id) pinnedBrandIds.add(String(p.brand_id));
+    }
 
     // 构建 merchantMap + trackedBrandIds
     merchantMap = {};
@@ -176,6 +185,8 @@ async function loadActivityDetail() {
         price_power: act.price_power,
         total_stock: act.total_stock || 0,
         remain_stock: act.remain_stock || 0,
+        single_user_limit: act.single_user_limit,
+        daily_limit: act.daily_limit,
         start_date: act.start_date || '-',
         end_date: act.end_date || '-',
         // UV
@@ -367,10 +378,12 @@ document.addEventListener('click', function(e) {
 function filterDetailData() {
   const cat = document.getElementById('category-filter').value;
   const keyword = document.getElementById('brand-search').value.trim().toLowerCase();
+  const pinnedOnly = document.getElementById('pinned-only')?.checked || false;
 
   filteredData = detailData.filter(row => {
     if (cat && row.category_l4 !== cat) return false;
     if (keyword && !row.brand_name.toLowerCase().includes(keyword) && !row.brand_id.toLowerCase().includes(keyword)) return false;
+    if (pinnedOnly && !pinnedBrandIds.has(row.brand_id)) return false;
     if (filterAssistants.size > 0 && !filterAssistants.has(row.contact_assistant)) return false;
     if (filterSPs.size > 0 && !filterSPs.has(row.operating_sp)) return false;
     if (filterOwners.size > 0 && !filterOwners.has(row.owner)) return false;
@@ -425,6 +438,16 @@ function fmtPricePower(val) {
   return (n / 100).toFixed(2) + '%';
 }
 
+// 限领值格式化：null/undefined → '-'，0 → '不限'，正数 → 千分位
+function fmtLimit(val) {
+  if (val === null || val === undefined || val === '') return '-';
+  const n = parseFloat(val);
+  if (isNaN(n)) return '-';
+  if (n === 0) return '不限';
+  if (n >= 100000000) return '不限';
+  return n.toLocaleString('zh-CN');
+}
+
 function fmtDateStr(val) {
   if (!val || val === '-') return '-';
   const s = String(val).replace(/[-/]/g, '').trim();
@@ -473,6 +496,8 @@ function renderDetailTable() {
       <td>${fmtDateStr(row.end_date)}</td>
       <td>${fmtPricePower(row.price_power)}</td>
       <td>${fmtStock(row.total_stock, row.remain_stock)}</td>
+      <td>${fmtLimit(row.single_user_limit)}</td>
+      <td>${fmtLimit(row.daily_limit)}</td>
       <td>${fmtNum(row.exposure_uv)}</td>
       <td>${fmtNum(row.claim_uv)}</td>
       <td>${fmtNum(row.redeem_uv)}</td>
@@ -489,7 +514,7 @@ function renderDetailTable() {
       <td>${fmtStoreRate(row.store_below_threshold)}</td>
     </tr>`;
   }
-  tbody.innerHTML = html || '<tr><td colspan="30" style="text-align:center;padding:32px;color:var(--text-muted)">暂无数据</td></tr>';
+  tbody.innerHTML = html || '<tr><td colspan="32" style="text-align:center;padding:32px;color:var(--text-muted)">暂无数据</td></tr>';
 
   renderPagination(total, totalPages);
 }
@@ -532,6 +557,7 @@ function exportDetailCSV() {
     '类目', '品牌ID', '品牌名称', '门店数', '日均交易笔数', '小程序占比',
     '对接助理', '服务商', '负责人',
     '活动ID', '活动名称', '批次名称', '活动开始时间', '活动结束时间', '价格力', '库存(剩余/总)',
+    '单用户限领', '单日限领',
     '曝光UV', '领取UV', '核销UV', 'UV曝光领取率', 'UV领取核销率', 'UV曝光核销率',
     '曝光PV', '领取PV', '核销PV', 'PV曝光领取率', 'PV领取核销率', 'PV曝光核销率',
     '到店核销率', '未达门槛占比',
@@ -556,6 +582,7 @@ function exportDetailCSV() {
       row.activity_id, csvVal(row.activity_name), csvVal(row.batch_name || ''),
       fmtDateStr(row.start_date), fmtDateStr(row.end_date),
       fmtPricePower(row.price_power), csvVal(fmtStock(row.total_stock, row.remain_stock)),
+      csvVal(fmtLimit(row.single_user_limit)), csvVal(fmtLimit(row.daily_limit)),
       row.exposure_uv, row.claim_uv, row.redeem_uv,
       fmtRate(row.uv_exposure_claim), fmtRate(row.uv_claim_redeem), fmtRate(row.uv_exposure_redeem),
       row.exposure_pv, row.claim_pv, row.redeem_pv,

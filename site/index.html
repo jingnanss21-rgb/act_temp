@@ -150,6 +150,10 @@
         <div class="multi-select-wrap" id="ms-sp"></div>
         <div class="multi-select-wrap" id="ms-owner"></div>
 
+        <label style="display:inline-flex;align-items:center;gap:4px;font-size:13px;color:#475569;cursor:pointer;margin-left:8px">
+          <input type="checkbox" id="pinned-only" onchange="filterDetailData()"> 只看置顶品牌
+        </label>
+
         <button class="btn-primary btn-sm" onclick="filterDetailData()">搜索</button>
       </div>
       <div class="filter-right">
@@ -163,7 +167,7 @@
           <tr>
             <th class="group-header" colspan="6">基础信息</th>
             <th class="group-header" colspan="3">对接信息</th>
-            <th class="group-header" colspan="7">活动信息</th>
+            <th class="group-header" colspan="9">活动信息</th>
             <th class="group-header" colspan="6">UV 数据</th>
             <th class="group-header" colspan="6">PV 数据</th>
             <th class="group-header" colspan="1">到店</th>
@@ -186,6 +190,8 @@
             <th>活动结束时间</th>
             <th>价格力</th>
             <th>库存</th>
+            <th>单用户限领</th>
+            <th>单日限领</th>
             <th>曝光UV</th>
             <th>领取UV</th>
             <th>核销UV</th>
@@ -203,7 +209,7 @@
           </tr>
         </thead>
         <tbody id="detail-table-body">
-          <tr><td colspan="30" style="text-align:center;padding:32px;color:var(--text-muted)">加载中...</td></tr>
+          <tr><td colspan="32" style="text-align:center;padding:32px;color:var(--text-muted)">加载中...</td></tr>
         </tbody>
       </table>
     </div>
