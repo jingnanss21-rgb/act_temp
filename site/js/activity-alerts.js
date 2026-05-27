@@ -1,15 +1,14 @@
 /**
- * activity-alerts.js - 活动预警模块（Tab4）
- * 到期预警：活动结束日期 ≤7天
- * 库存预警：按日均消耗预测剩余天数 ≤7天
- * 支持按服务商、对接助理多选筛选
+ * activity-alerts.js - 活动预警模块（Tab3）
+ * 到期预警：活动结束日期距今 ≤7天（统一阈值，不分红黄）
+ * 限领配置预警：单用户<100 或 单日<10000
+ * 支持按服务商、对接助理多选筛选 + 置顶品牌筛选
  */
 
 let alertsData = [];
 let alertMerchantMap = {};  // brand_id → { contact_assistant, operating_sp }
 let alertSpOwnerMap = {};   // sp_name → owner
 let alertAllExpiry = [];
-let alertAllStock = [];
 let alertAllLimit = [];     // 限领配置预警
 let alertFilterAssistant = new Set();
 let alertFilterSP = new Set();
@@ -52,13 +51,6 @@ function daysUntil(dateStr) {
   return Math.ceil((d - today) / 86400000);
 }
 
-function alertLevel(days) {
-  if (days === null || days < 0) return null;  // 已过期不预警
-  if (days <= 3) return 'red';
-  if (days <= 7) return 'yellow';
-  return null;
-}
-
 async function loadActivityAlerts() {
   const container = document.getElementById('alert-container');
   container.innerHTML = '<div class="loading"><div class="spinner"></div><p>加载预警数据...</p></div>';
@@ -97,7 +89,6 @@ async function loadActivityAlerts() {
 
     alertsData = data;
     alertAllExpiry = [];
-    alertAllStock = [];
     alertAllLimit = [];
 
     for (const act of data) {
@@ -109,16 +100,11 @@ async function loadActivityAlerts() {
         operating_sp: merchant.operating_sp || '-',
       };
 
+      // 到期预警：统一 <=7 天阈值
       const daysLeft = daysUntil(act.end_date);
-      const level = alertLevel(daysLeft);
-
-      if (level) {
-        alertAllExpiry.push({ ...enriched, days_left: daysLeft, level: level });
+      if (daysLeft !== null && daysLeft >= 0 && daysLeft <= 7) {
+        alertAllExpiry.push({ ...enriched, days_left: daysLeft });
       }
-
-      const totalStock = act.total_stock || 0;
-      const remainStock = act.remain_stock || 0;
-      const dayCount = act.day_count || 1;
 
       // 限领配置预警（单用户<100 或 单日<10000，0/null/超大值视为不限不告警）
       const userLimit = act.single_user_limit;
@@ -126,41 +112,17 @@ async function loadActivityAlerts() {
       const userTooLow = _isLimitConfigured(userLimit) && parseFloat(userLimit) < LIMIT_ALERT_THRESHOLDS.single_user;
       const dayTooLow  = _isLimitConfigured(dayLimit)  && parseFloat(dayLimit)  < LIMIT_ALERT_THRESHOLDS.daily;
       if (userTooLow || dayTooLow) {
-        const reasons = [];
-        if (userTooLow) reasons.push('单用户');
-        if (dayTooLow)  reasons.push('单日');
         alertAllLimit.push({
           ...enriched,
           single_user_limit: userLimit,
           daily_limit: dayLimit,
           user_too_low: userTooLow,
           day_too_low: dayTooLow,
-          reason: reasons.join(' · ') + '偏低',
         });
-      }
-
-      if (totalStock >= 100000000 || totalStock <= 0) continue;
-
-      const consumed = totalStock - remainStock;
-      const dailyConsumption = consumed / dayCount;
-
-      if (dailyConsumption > 0) {
-        const daysToDeplete = Math.ceil(remainStock / dailyConsumption);
-        const stockLevel = alertLevel(daysToDeplete);
-        if (stockLevel) {
-          alertAllStock.push({
-            ...enriched,
-            days_to_deplete: daysToDeplete,
-            daily_consumption: Math.round(dailyConsumption),
-            remain_pct: totalStock > 0 ? (remainStock / totalStock * 100).toFixed(1) : 0,
-            level: stockLevel,
-          });
-        }
       }
     }
 
     alertAllExpiry.sort((a, b) => a.days_left - b.days_left);
-    alertAllStock.sort((a, b) => a.days_to_deplete - b.days_to_deplete);
     // 限领预警按"两种都偏低"在前、单用户限领升序为辅排
     alertAllLimit.sort((a, b) => {
       const sevA = (a.user_too_low ? 1 : 0) + (a.day_too_low ? 1 : 0);
@@ -194,17 +156,13 @@ function filterAlertItems(items) {
 function renderAlerts() {
   const container = document.getElementById('alert-container');
   const expiryAlerts = filterAlertItems(alertAllExpiry);
-  const stockAlerts = filterAlertItems(alertAllStock);
   const limitAlerts = filterAlertItems(alertAllLimit);
 
-  const redExpiry = expiryAlerts.filter(a => a.level === 'red').length;
-  const yellowExpiry = expiryAlerts.filter(a => a.level === 'yellow').length;
-  const redStock = stockAlerts.filter(a => a.level === 'red').length;
-  const yellowStock = stockAlerts.filter(a => a.level === 'yellow').length;
+  const expiryCount = expiryAlerts.length;
   const limitCount = limitAlerts.length;
 
   // 收集筛选选项
-  const allItems = [...alertAllExpiry, ...alertAllStock, ...alertAllLimit];
+  const allItems = [...alertAllExpiry, ...alertAllLimit];
   const assistants = [...new Set(allItems.map(a => a.contact_assistant).filter(v => v && v !== '-'))].sort();
   const sps = [...new Set(allItems.map(a => a.operating_sp).filter(v => v && v !== '-'))].sort();
 
@@ -217,73 +175,46 @@ function renderAlerts() {
         <input type="checkbox" id="alert-pinned-only" onchange="onAlertPinnedChange()" ${alertPinnedOnly ? 'checked' : ''}> 只看置顶品牌
       </label>
       <span style="margin-left:auto;font-size:12px;color:#94A3B8">
-        🔴 ≤3天 &nbsp; 🟡 4-7天 &nbsp; 🟠 限领配置 &nbsp; 共${alertsData.length}个活动
+        共${alertsData.length}个活动
       </span>
     </div>
 
     <!-- 汇总卡片 -->
     <div class="alert-summary">
-      <div class="alert-summary-card" style="border-left:4px solid #DC2626">
-        <h3>🔴 紧急（≤3天）</h3>
-        <div class="alert-count ${(redExpiry + redStock) > 0 ? 'red' : 'green'}">${redExpiry + redStock}</div>
-        <div style="font-size:12px;color:#94A3B8">${redExpiry}个到期 + ${redStock}个库存</div>
-      </div>
       <div class="alert-summary-card" style="border-left:4px solid #D97706">
-        <h3>🟡 关注（4-7天）</h3>
-        <div class="alert-count ${(yellowExpiry + yellowStock) > 0 ? 'yellow' : 'green'}">${yellowExpiry + yellowStock}</div>
-        <div style="font-size:12px;color:#94A3B8">${yellowExpiry}个到期 + ${yellowStock}个库存</div>
+        <h3>⏰ 即将到期（≤7天）</h3>
+        <div class="alert-count ${expiryCount > 0 ? 'yellow' : 'green'}">${expiryCount}</div>
+        <div style="font-size:12px;color:#94A3B8">结束日期距今 ≤7 天</div>
       </div>
       <div class="alert-summary-card" style="border-left:4px solid #EA580C">
-        <h3>🟠 限领配置偏低</h3>
+        <h3>🚦 限领配置偏低</h3>
         <div class="alert-count ${limitCount > 0 ? 'yellow' : 'green'}">${limitCount}</div>
         <div style="font-size:12px;color:#94A3B8">单用户&lt;100 或 单日&lt;10000</div>
       </div>
     </div>
 
-    <!-- 两栏详情 -->
-    <div class="alert-two-col">
-      <div class="alert-col">
-        <div class="alert-col-header">⏰ 活动到期预警 · 结束日期距今 ≤7天 (${expiryAlerts.length})</div>
-        <div class="alert-col-body">
-          ${expiryAlerts.length === 0 ? '<div class="alert-empty">暂无到期预警 🎉</div>' : ''}
-          ${expiryAlerts.map(a => `
-            <div class="alert-item level-${a.level}">
-              <div class="alert-badge ${a.level}">${a.days_left}天</div>
-              <div class="alert-info">
-                <div class="alert-brand">${a.brand_name || '-'}</div>
-                <div class="alert-act" title="${a.activity_name}">${a.activity_name || '-'}</div>
-              </div>
-              <div class="alert-detail">
-                ${a.contact_assistant !== '-' ? '<span style="color:#2563EB">' + a.contact_assistant + '</span> · ' : ''}${a.operating_sp !== '-' ? a.operating_sp + '<br>' : ''}
-                截止 ${formatEndDate(a.end_date)}
-              </div>
+    <!-- 到期预警 -->
+    <div class="alert-col" style="margin-top:16px">
+      <div class="alert-col-header">⏰ 活动到期预警 · 结束日期距今 ≤7天 (${expiryAlerts.length})</div>
+      <div class="alert-col-body">
+        ${expiryAlerts.length === 0 ? '<div class="alert-empty">暂无到期预警 🎉</div>' : ''}
+        ${expiryAlerts.map(a => `
+          <div class="alert-item level-yellow">
+            <div class="alert-badge yellow">${a.days_left}天</div>
+            <div class="alert-info">
+              <div class="alert-brand">${a.brand_name || '-'} <span style="font-size:11px;color:#94A3B8;font-weight:400">${a.brand_id || ''}</span></div>
+              <div class="alert-act" title="${a.activity_name}">${a.activity_name || '-'} <span style="font-size:11px;color:#94A3B8">${a.activity_id || ''}</span></div>
             </div>
-          `).join('')}
-        </div>
-      </div>
-
-      <div class="alert-col">
-        <div class="alert-col-header">📦 库存耗尽预警 · 按日均消耗预计 ≤7天耗尽 (${stockAlerts.length})</div>
-        <div class="alert-col-body">
-          ${stockAlerts.length === 0 ? '<div class="alert-empty">暂无库存预警 🎉</div>' : ''}
-          ${stockAlerts.map(a => `
-            <div class="alert-item level-${a.level}">
-              <div class="alert-badge ${a.level}">${a.days_to_deplete}天</div>
-              <div class="alert-info">
-                <div class="alert-brand">${a.brand_name || '-'}</div>
-                <div class="alert-act" title="${a.activity_name}">${a.activity_name || '-'}</div>
-              </div>
-              <div class="alert-detail">
-                ${a.contact_assistant !== '-' ? '<span style="color:#2563EB">' + a.contact_assistant + '</span> · ' : ''}${a.operating_sp !== '-' ? a.operating_sp + '<br>' : ''}
-                剩余 ${a.remain_pct}% · 日均 ${fmtAlertNum(a.daily_consumption)}
-              </div>
+            <div class="alert-detail">
+              ${a.contact_assistant !== '-' ? '<span style="color:#2563EB">' + a.contact_assistant + '</span> · ' : ''}${a.operating_sp !== '-' ? a.operating_sp + '<br>' : ''}
+              截止 ${formatEndDate(a.end_date)}
             </div>
-          `).join('')}
-        </div>
+          </div>
+        `).join('')}
       </div>
     </div>
 
-    <!-- 限领配置预警（独占一栏，全宽） -->
+    <!-- 限领配置预警 -->
     <div class="alert-col" style="margin-top:16px">
       <div class="alert-col-header">🚦 限领配置预警 · 单用户限领&lt;100 或 单日限领&lt;10000 (${limitAlerts.length})</div>
       <div class="alert-col-body">
@@ -294,8 +225,8 @@ function renderAlerts() {
               ${a.user_too_low && a.day_too_low ? '双低' : (a.user_too_low ? '单用户' : '单日')}
             </div>
             <div class="alert-info">
-              <div class="alert-brand">${a.brand_name || '-'}</div>
-              <div class="alert-act" title="${a.activity_name}">${a.activity_name || '-'}</div>
+              <div class="alert-brand">${a.brand_name || '-'} <span style="font-size:11px;color:#94A3B8;font-weight:400">${a.brand_id || ''}</span></div>
+              <div class="alert-act" title="${a.activity_name}">${a.activity_name || '-'} <span style="font-size:11px;color:#94A3B8">${a.activity_id || ''}</span></div>
             </div>
             <div class="alert-detail">
               ${a.contact_assistant !== '-' ? '<span style="color:#2563EB">' + a.contact_assistant + '</span> · ' : ''}${a.operating_sp !== '-' ? a.operating_sp + '<br>' : ''}
