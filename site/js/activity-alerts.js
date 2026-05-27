@@ -170,15 +170,16 @@ function getFilteredExpiry() {
 
 function getFilteredLimit() {
   return filterAlertItems(alertAllLimit).filter(a => {
-    // 每个已配置的维度都必须满足当前阈值（AND 叠加）
-    const userRelevant = a.user_val < Infinity;  // 该维度有配置
-    const dayRelevant  = a.day_val < Infinity;
+    // "不限"（Infinity）= 该维度未配置有效限制，不参与筛选判断
+    const userConfigured = a.user_val < Infinity;
+    const dayConfigured  = a.day_val < Infinity;
 
-    // 如果该维度有配置但不满足当前筛选阈值 → 排除
-    if (userRelevant && a.user_val >= limitUserFilter) return false;
-    if (dayRelevant && a.day_val >= limitDailyFilter) return false;
+    // 判断每个已配置维度是否满足当前筛选阈值
+    const userHit = userConfigured && a.user_val < limitUserFilter;
+    const dayHit  = dayConfigured  && a.day_val < limitDailyFilter;
 
-    return true;
+    // 至少一个已配置维度命中阈值才展示
+    return userHit || dayHit;
   });
 }
 
