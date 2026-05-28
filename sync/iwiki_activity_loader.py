@@ -214,45 +214,57 @@ def download_activity_csv(attachment_id: int, date_str: str) -> str:
 
 
 # ── CSV 字段名 → 中文映射 ──
-# iWiki CSV 用英文字段名，这里转成 sync_v2.py FIELD_MAP 已经认识的中文字段名，
-# 这样下游 _map_row() 完全不用改，省一大堆兼容代码。
+# iWiki CSV 字段名格式为 "前缀_随机数字"，每次导出后缀数字不同，
+# 所以用前缀匹配（去掉末尾 _\d+ 后匹配）。
 
-ENG_TO_CN = {
-    "fbrandid_1":                          "品牌ID",
-    "fbrandname_15":                       "品牌名称",
-    "category_name_48":                    "品类名称",
-    "factid_99":                           "活动ID",
-    "factname_75":                         "活动名称",
-    "str_stock_id_26":                     "券批次id",
-    "stock_name_37":                       "批次名称",
-    "act_price_comparison_avg_11":         "活动价格力（各渠道有值渠道的算术平均）",
-    "act_start_date_62":                   "活动开始时间",
-    "act_end_date_86":                     "活动结束时间",
-    "fmaxcount_64":                        "发券总库存",
-    "remain_inventory_94":                 "券剩余库存",
-    "coupon_type_label_73":                "券类型",
-    "discount_threshold_4":                "优惠门槛",
-    "discount_amount_42":                  "优惠金额",
-    # 新增的两个限领字段
-    "fuserlimitperact_84":                 "单用户限领",
-    "fdailylimitperact_86":                "单日限领",
-    # 数据指标
-    "max_a0_cur_fexpose_cnt_72":           "曝光数(最大值)",
-    "max_a0_cur_fsend_cnt_43":             "领取数(最大值)",
-    "max_a0_cur_fconsume_cnt_81":          "核销数(最大值)",
-    "max_a0_cur_fexpose_uin_cnt_67":       "曝光uin数(最大值)",
-    "max_a0_cur_fsend_uin_cnt_57":         "领取uin数(最大值)",
-    "max_a0_cur_fconsume_uin_cnt_46":      "核销uin数(最大值)",
-    "max_a1_claim_at_shop_rate_uv_13":     "领取到店率_uv\t(最大值)",
-    "max_a1_redeem_when_claim_rate_uv_75": "领取核销率_uv\t(最大值)",
-    "max_a1_redeem_at_shop_rate_uv_56":    "到店核销率_uv\t(最大值)",
-    "max_a1_visit_below_threshold_percent_70": "到店未达门槛占比(最大值)",
+PREFIX_TO_CN = {
+    "fbrandid":                          "品牌ID",
+    "fbrandname":                        "品牌名称",
+    "category_name":                     "品类名称",
+    "factid":                            "活动ID",
+    "factname":                          "活动名称",
+    "str_stock_id":                      "券批次id",
+    "stock_name":                        "批次名称",
+    "act_price_comparison_avg":          "活动价格力（各渠道有值渠道的算术平均）",
+    "act_start_date":                    "活动开始时间",
+    "act_end_date":                      "活动结束时间",
+    "fmaxcount":                         "发券总库存",
+    "remain_inventory":                  "券剩余库存",
+    "coupon_type_label":                 "券类型",
+    "discount_threshold":                "优惠门槛",
+    "discount_amount":                   "优惠金额",
+    "fuserlimitperact":                  "单用户限领",
+    "fdailylimitperact":                 "单日限领",
+    "max_a0_cur_fexpose_cnt":            "曝光数(最大值)",
+    "max_a0_cur_fsend_cnt":              "领取数(最大值)",
+    "max_a0_cur_fconsume_cnt":           "核销数(最大值)",
+    "max_a0_cur_fexpose_uin_cnt":        "曝光uin数(最大值)",
+    "max_a0_cur_fsend_uin_cnt":          "领取uin数(最大值)",
+    "max_a0_cur_fconsume_uin_cnt":       "核销uin数(最大值)",
+    "max_a1_claim_at_shop_rate_uv":      "领取到店率_uv\t(最大值)",
+    "max_a1_redeem_when_claim_rate_uv":  "领取核销率_uv\t(最大值)",
+    "max_a1_redeem_at_shop_rate_uv":     "到店核销率_uv\t(最大值)",
+    "max_a1_visit_below_threshold_percent": "到店未达门槛占比(最大值)",
 }
+
+# 预编译：去掉末尾 _数字 的正则
+_SUFFIX_RE = re.compile(r"_\d+$")
+
+
+def _match_prefix(col_name: str) -> str:
+    """把 CSV 列名（如 fbrandid_37）转为中文列名，匹配不到则原样返回。"""
+    stripped = _SUFFIX_RE.sub("", col_name)  # "fbrandid_37" → "fbrandid"
+    cn = PREFIX_TO_CN.get(stripped)
+    if cn:
+        return cn
+    # fallback: 原名
+    return col_name
 
 
 def parse_activity_csv(csv_path: str) -> List[Dict[str, str]]:
     """
     解析活动日报 CSV，把英文列名转中文（对齐 sync_v2.py FIELD_MAP）。
+    使用前缀匹配，兼容每次导出后缀数字变化。
     """
     rows: List[Dict[str, str]] = []
     with open(csv_path, "r", encoding="utf-8-sig") as f:
@@ -261,7 +273,7 @@ def parse_activity_csv(csv_path: str) -> List[Dict[str, str]]:
             cleaned: Dict[str, str] = {}
             for k, v in row.items():
                 key = (k or "").strip()
-                cn_key = ENG_TO_CN.get(key, key)  # 没在映射表里的保留原名
+                cn_key = _match_prefix(key)
                 cleaned[cn_key] = v
             rows.append(cleaned)
     return rows
