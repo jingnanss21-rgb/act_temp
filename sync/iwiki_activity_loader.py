@@ -265,19 +265,18 @@ def parse_activity_csv(csv_path: str) -> List[Dict[str, str]]:
     """
     解析活动日报 CSV，把英文列名转中文（对齐 sync_v2.py FIELD_MAP）。
     使用前缀匹配，兼容每次导出后缀数字变化。
-    编码兼容：先试 utf-8-sig，失败自动 fallback 到 gbk/latin-1。
+    编码兼容：先试 UTF-8，失败用 GBK（errors=replace 容忍少量脏字节）。
     """
-    # 检测编码
+    # 检测编码：UTF-8 能解开就用 UTF-8，否则用 GBK
     encoding = "utf-8-sig"
     with open(csv_path, "rb") as fb:
         raw = fb.read()
-    for enc in ("utf-8-sig", "utf-8", "gbk", "gb2312", "latin-1"):
-        try:
-            raw.decode(enc.replace("-sig", "") if enc == "utf-8-sig" else enc)
-            encoding = enc
-            break
-        except (UnicodeDecodeError, LookupError):
-            continue
+    try:
+        raw.decode("utf-8")
+        encoding = "utf-8-sig"
+    except UnicodeDecodeError:
+        # 非 UTF-8，用 GBK（容忍少量脏字节）
+        encoding = "gbk"
 
     rows: List[Dict[str, str]] = []
     with open(csv_path, "r", encoding=encoding, errors="replace") as f:
