@@ -21,7 +21,7 @@
 cd /Users/jingnanshe/WorkBuddy/20260416110818/sync
 ```
 
-### Step 2：执行旧表日更同步（活动日报 + 品牌日报）
+### Step 2：执行旧表日更同步（活动日报 + 品牌日报 + 商户跟进表）
 ```bash
 ./sync_task.sh daily
 ```
@@ -190,7 +190,7 @@ curl -s -o /dev/null -w "%{http_code}" https://act-temp.pages.dev
 |-------|---------|---------|---------|
 | 活动日报导览 | DWWhYU3FrWXhuSHhu | https://docs.qq.com/sheet/DWWhYU3FrWXhuSHhu?tab=BB08J2 | 日更 |
 | 品牌日报导览 | DWENVYUF5ekVPc1R3 | https://docs.qq.com/sheet/DWENVYUF5ekVPc1R3?tab=BB08J2 | 日更 |
-| 商户跟进总表 | DWUxvdFNHQXpWd0ZO | https://docs.qq.com/sheet/DWUxvdFNHQXpWd0ZO?tab=BB08J2 | 低频 |
+| 商户跟进总表 | DWUxvdFNHQXpWd0ZO | https://docs.qq.com/sheet/DWUxvdFNHQXpWd0ZO?tab=BB08J2 | 日更 |
 | 服务商分工 | DWVRiUGNCTUJhTHVv | https://docs.qq.com/sheet/DWVRiUGNCTUJhTHVv?tab=BB08J2 | 低频 |
 | KA分工 | DWU9VWmZ0UWphWG9J | https://docs.qq.com/sheet/DWU9VWmZ0UWphWG9J?tab=BB08J2 | 低频 |
 

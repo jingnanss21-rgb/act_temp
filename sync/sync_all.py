@@ -1,6 +1,10 @@
 """
 sync_all.py - 数据同步主入口
-从腾讯文档同步数据到 Supabase
+从腾讯文档 / iWiki 同步数据到 Supabase
+
+品牌日报数据源：
+  - report_date >= IWIKI_BRAND_CUTOVER_DATE → iWiki CSV (docid=4019899005)
+  - report_date < IWIKI_BRAND_CUTOVER_DATE → 腾讯文档（两跳导览表）
 
 用法:
   python sync_all.py                  # 同步所有表
@@ -29,6 +33,9 @@ from doc_reader import (
     extract_file_id_from_url,
 )
 from supabase_writer import get_client, upsert_batch
+
+# iWiki 品牌日报切换日期：>= 此日期走 iWiki CSV，< 走原腾讯文档
+IWIKI_BRAND_CUTOVER_DATE = os.environ.get("IWIKI_BRAND_CUTOVER_DATE", "2026-05-04")
 
 # ============================================================
 # 文档 ID 配置
@@ -145,14 +152,13 @@ def sync_activities(client):
 def sync_brand_daily(client):
     """
     同步品牌日报
-    表5 日报品牌详情 → 两跳 → 品牌日报 smartsheet
+    数据源优先级：
+      1. iWiki CSV (report_date >= IWIKI_BRAND_CUTOVER_DATE)
+      2. 腾讯文档导览表 → 两跳 → 品牌日报 smartsheet（兜底）
     """
     print("\n" + "=" * 60)
     print("同步 tem_brand_daily（品牌日报详情）")
     print("=" * 60)
-
-    nav_entries = read_index_table_with_links(DOC_IDS["brand_nav"])
-    print(f"  索引表共 {len(nav_entries)} 条记录")
 
     # 品牌日报字段映射：底表字段名 → DB 列名
     FIELD_MAP = {
@@ -259,8 +265,49 @@ def sync_brand_daily(client):
         "日期": "report_date",
     }
 
+    # ── 尝试 iWiki CSV 链路 ──
+    iwiki_rows = []
+    iwiki_ok = False
+    try:
+        from iwiki_brand_loader import load_iwiki_attachments, load_brand_daily_from_iwiki, find_latest_date
+
+        attachments = load_iwiki_attachments()
+        latest_date = find_latest_date(attachments)
+
+        if latest_date >= IWIKI_BRAND_CUTOVER_DATE:
+            print(f"  [iWiki] 最新日期 {latest_date} >= {IWIKI_BRAND_CUTOVER_DATE}，使用 iWiki CSV")
+            csv_rows = load_brand_daily_from_iwiki(latest_date, attachments)
+            report_date = latest_date
+
+            for row in csv_rows:
+                brand_id = _safe_str(row.get("品牌ID", ""))
+                if not brand_id:
+                    continue
+                record = {"report_date": report_date}
+                for src_field, db_col in FIELD_MAP.items():
+                    if src_field in row:
+                        record[db_col] = _safe_str(row[src_field])
+                record["brand_id"] = brand_id
+                iwiki_rows.append(record)
+
+            print(f"  [iWiki] 解析成功: {len(iwiki_rows)} 条品牌记录 (date={report_date})")
+            iwiki_ok = True
+        else:
+            print(f"  [iWiki] 最新日期 {latest_date} < {IWIKI_BRAND_CUTOVER_DATE}，回退腾讯文档")
+    except Exception as e:
+        print(f"  [iWiki] 品牌日报加载失败，回退腾讯文档: {e}")
+
+    if iwiki_ok and iwiki_rows:
+        upsert_batch(client, "tem_brand_daily", iwiki_rows,
+                      conflict_columns=["brand_id", "report_date"])
+        return
+
+    # ── 兜底：原腾讯文档链路 ──
+    print("  使用腾讯文档导览表链路（兜底）")
+    nav_entries = read_index_table_with_links(DOC_IDS["brand_nav"])
+    print(f"  索引表共 {len(nav_entries)} 条记录")
+
     all_rows = []
-    # 只同步最新一天（A2是最新的，即第一条有效条目）
     valid_entries = [e for e in nav_entries if e["file_id"] and e["url"]]
     if not valid_entries:
         print("  ⚠ 无有效索引条目")
@@ -292,7 +339,6 @@ def sync_brand_daily(client):
                 for src_field, db_col in FIELD_MAP.items():
                     if src_field in row:
                         record[db_col] = _safe_str(row[src_field])
-                # 确保 brand_id 在
                 record["brand_id"] = brand_id
                 all_rows.append(record)
 

@@ -5,3 +5,6 @@ __pycache__/
 *.xlsx
 *.tmp
 docs/
+.DS_Store
+sync/_iwiki_cache/
+sync_backup/
