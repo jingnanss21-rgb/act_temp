@@ -150,13 +150,15 @@ function computeCategoryStats() {
     const eVal = t === 'uv' ? (a.exposure_uv || 0) : (a.exposure_pv || 0);
     const cVal = t === 'uv' ? (a.claim_uv || 0) : (a.claim_pv || 0);
     const rVal = t === 'uv' ? (a.redeem_uv || 0) : (a.redeem_pv || 0);
+    // 转化率用生命周期累计（周期无关，避免窗口内领取/核销错配虚高）
+    const rb = getRateBasis(a);
 
     const item = {
       ...a,
       category: cat,
-      exposure_claim: eVal > 0 ? cVal / eVal : 0,
-      claim_redeem: cVal > 0 ? rVal / cVal : 0,
-      exposure_redeem: eVal > 0 ? rVal / eVal : 0,
+      exposure_claim: rb.exposure > 0 ? rb.claim / rb.exposure : 0,
+      claim_redeem: rb.claim > 0 ? rb.redeem / rb.claim : 0,
+      exposure_redeem: rb.exposure > 0 ? rb.redeem / rb.exposure : 0,
       store_redeem: storeRedeem,
       claim_to_store_rate: claimToStoreRate,
       store_visit_uv: storeVisitUv,
@@ -332,6 +334,10 @@ function runDiagnosis() {
   // UV 始终需要（到店相关）
   const totalClaimUv = brandActivities.reduce((s, a) => s + (a.claim_uv || 0), 0);
   const totalRedeemUv = brandActivities.reduce((s, a) => s + (a.redeem_uv || 0), 0);
+  // 转化率用生命周期累计合计（周期无关，避免窗口内领取/核销错配虚高）
+  const eCum = brandActivities.reduce((s, a) => s + ((t === 'uv' ? a.exposure_uv_cum : a.exposure_pv_cum) || 0), 0);
+  const cCum = brandActivities.reduce((s, a) => s + ((t === 'uv' ? a.claim_uv_cum : a.claim_pv_cum) || 0), 0);
+  const rCum = brandActivities.reduce((s, a) => s + ((t === 'uv' ? a.redeem_uv_cum : a.redeem_pv_cum) || 0), 0);
 
   // V2.1: 到店核销率直接用DB真实值（品牌级加权平均）
   // 按核销UV加权: sum(redeem_uv_i * store_rate_i) / sum(redeem_uv_i)
@@ -347,9 +353,9 @@ function runDiagnosis() {
   let storeRate = weightedStoreDenom > 0 ? weightedStoreSum / weightedStoreDenom : NaN;
 
   diagCurrentBrand.metrics = {
-    exposure_claim: totalExposure > 0 ? totalClaim / totalExposure : 0,
-    claim_redeem: totalClaim > 0 ? totalRedeem / totalClaim : 0,
-    exposure_redeem: totalExposure > 0 ? totalRedeem / totalExposure : 0,
+    exposure_claim: eCum > 0 ? cCum / eCum : 0,
+    claim_redeem: cCum > 0 ? rCum / cCum : 0,
+    exposure_redeem: eCum > 0 ? rCum / eCum : 0,
     store_redeem: storeRate || 0,
   };
 
@@ -606,7 +612,7 @@ function renderDiagResult() {
 
     <!-- 口径说明 -->
     <div style="padding:8px 0 16px;font-size:11px;color:#94A3B8;line-height:1.6">
-      口径说明：转化率为活动维度${(window.currentMetricType||'uv')==='pv'?'PV':'UV'}口径；到店${(window.currentMetricType||'uv')==='pv'?'次数':'人数'} = 核销/到店核销率（次卡场景用 领取×领取到店率）；领取到店率由预估到店反推；价格力原值÷100为实际折扣率
+      口径说明：转化率为活动累计口径（全历史 核销/领取，与所选时间范围无关）；数量为所选区间求和；到店${(window.currentMetricType||'uv')==='pv'?'次数':'人数'} = 核销/到店核销率（次卡场景用 领取×领取到店率）；领取到店率由预估到店反推；价格力原值÷100为实际折扣率
     </div>
   `;
 
@@ -919,9 +925,13 @@ function renderDiagActivities() {
     const eVal = t === 'uv' ? (a.exposure_uv||0) : (a.exposure_pv||0);
     const cVal = t === 'uv' ? (a.claim_uv||0) : (a.claim_pv||0);
     const rVal = t === 'uv' ? (a.redeem_uv||0) : (a.redeem_pv||0);
-    const ecr = eVal > 0 ? cVal / eVal : 0;
-    const crr = cVal > 0 ? rVal / cVal : 0;
-    const err = eVal > 0 ? rVal / eVal : 0;
+    // 转化率用生命周期累计（周期无关）；上面 eVal/cVal/rVal 仅用于数量展示
+    const eC = t === 'uv' ? (a.exposure_uv_cum||0) : (a.exposure_pv_cum||0);
+    const cC = t === 'uv' ? (a.claim_uv_cum||0) : (a.claim_pv_cum||0);
+    const rC = t === 'uv' ? (a.redeem_uv_cum||0) : (a.redeem_pv_cum||0);
+    const ecr = eC > 0 ? cC / eC : 0;
+    const crr = cC > 0 ? rC / cC : 0;
+    const err = eC > 0 ? rC / eC : 0;
     // 活动级到店核销率（真实值）
     const actStoreRedeem = parseStoreRate(a.store_redeem_rate_uv);
 
@@ -1034,9 +1044,9 @@ function renderDiagCompareTable() {
   const activities = [...b.activities].sort((x, y) => (y.exposure_pv || 0) - (x.exposure_pv || 0)).slice(0, 5);
 
   const metrics = [
-    { label: '曝光领取率', calc: a => a.exposure_pv > 0 ? a.claim_pv / a.exposure_pv : 0, med: meds.exposure_claim || 0 },
-    { label: '领取核销率', calc: a => a.claim_pv > 0 ? a.redeem_pv / a.claim_pv : 0, med: meds.claim_redeem || 0 },
-    { label: '曝光核销率', calc: a => a.exposure_pv > 0 ? a.redeem_pv / a.exposure_pv : 0, med: meds.exposure_redeem || 0 },
+    { label: '曝光领取率', calc: a => a.exposure_pv_cum > 0 ? a.claim_pv_cum / a.exposure_pv_cum : 0, med: meds.exposure_claim || 0 },
+    { label: '领取核销率', calc: a => a.claim_pv_cum > 0 ? a.redeem_pv_cum / a.claim_pv_cum : 0, med: meds.claim_redeem || 0 },
+    { label: '曝光核销率', calc: a => a.exposure_pv_cum > 0 ? a.redeem_pv_cum / a.exposure_pv_cum : 0, med: meds.exposure_redeem || 0 },
     { label: '到店核销率', calc: () => b.metrics.store_redeem, med: meds.store_redeem || 0 },
   ];
 

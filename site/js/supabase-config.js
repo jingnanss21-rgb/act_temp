@@ -24,6 +24,17 @@ function getMetricVals(act) {
   };
 }
 
+// 转化率基数：活动生命周期累计 pv/uv（与时间范围无关），按当前 UV/PV 口径返回。
+// 说明：底表存每日增量，窗口内 Σredeem/Σclaim 因领取/核销跨窗口错配而虚高；
+//       转化率一律用本函数（*_cum，视图内全历史累计），数量展示仍用窗口 getMetricVals。
+function getRateBasis(act) {
+  const t = window.currentMetricType || 'uv';
+  if (t === 'uv') {
+    return { exposure: act.exposure_uv_cum || 0, claim: act.claim_uv_cum || 0, redeem: act.redeem_uv_cum || 0 };
+  }
+  return { exposure: act.exposure_pv_cum || 0, claim: act.claim_pv_cum || 0, redeem: act.redeem_pv_cum || 0 };
+}
+
 function getViewName() {
   const p = window.currentPeriod || '7d';
   if (p === 'today') return 'v_activity_today';

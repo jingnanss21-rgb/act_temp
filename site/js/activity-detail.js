@@ -156,6 +156,9 @@ async function loadActivityDetail() {
       const ePv = act.exposure_pv || 0;
       const cPv = act.claim_pv || 0;
       const rPv = act.redeem_pv || 0;
+      // 转化率用生命周期累计（周期无关）；上面 UV/PV 仅用于数量展示
+      const eUvC = act.exposure_uv_cum || 0, cUvC = act.claim_uv_cum || 0, rUvC = act.redeem_uv_cum || 0;
+      const ePvC = act.exposure_pv_cum || 0, cPvC = act.claim_pv_cum || 0, rPvC = act.redeem_pv_cum || 0;
 
       // 过滤曝光=0的活动
       if (ePv === 0 && eUv === 0) continue;
@@ -193,16 +196,16 @@ async function loadActivityDetail() {
         exposure_uv: eUv,
         claim_uv: cUv,
         redeem_uv: rUv,
-        uv_exposure_claim: eUv > 0 ? cUv / eUv : 0,
-        uv_claim_redeem: cUv > 0 ? rUv / cUv : 0,
-        uv_exposure_redeem: eUv > 0 ? rUv / eUv : 0,
+        uv_exposure_claim: eUvC > 0 ? cUvC / eUvC : 0,
+        uv_claim_redeem: cUvC > 0 ? rUvC / cUvC : 0,
+        uv_exposure_redeem: eUvC > 0 ? rUvC / eUvC : 0,
         // PV
         exposure_pv: ePv,
         claim_pv: cPv,
         redeem_pv: rPv,
-        pv_exposure_claim: ePv > 0 ? cPv / ePv : 0,
-        pv_claim_redeem: cPv > 0 ? rPv / cPv : 0,
-        pv_exposure_redeem: ePv > 0 ? rPv / ePv : 0,
+        pv_exposure_claim: ePvC > 0 ? cPvC / ePvC : 0,
+        pv_claim_redeem: cPvC > 0 ? rPvC / cPvC : 0,
+        pv_exposure_redeem: ePvC > 0 ? rPvC / ePvC : 0,
         // 到店
         w7_store_redeem_rate_uv: storeRedeem,
         store_below_threshold: act.store_below_threshold,

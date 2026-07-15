@@ -158,6 +158,9 @@ async function loadBestPracticeData() {
         // 原始数据双口径
         exposure_pv: ePv, claim_pv: cPv, redeem_pv: rPv,
         exposure_uv: eUv, claim_uv: cUv, redeem_uv: rUv,
+        // 生命周期累计（供转化率计算，与时间范围无关）
+        exposure_pv_cum: act.exposure_pv_cum || 0, claim_pv_cum: act.claim_pv_cum || 0, redeem_pv_cum: act.redeem_pv_cum || 0,
+        exposure_uv_cum: act.exposure_uv_cum || 0, claim_uv_cum: act.claim_uv_cum || 0, redeem_uv_cum: act.redeem_uv_cum || 0,
         // 到店始终UV
         store_visit_uv: storeVisitUv,
         store_redeem_rate: storeRate,
@@ -272,12 +275,11 @@ function switchBPMetric(idx) {
 function recomputeBestPractice() {
   const t = window.currentMetricType || 'uv';
   for (const item of allActivitiesForBP) {
-    const e = t === 'uv' ? item.exposure_uv : item.exposure_pv;
-    const c = t === 'uv' ? item.claim_uv : item.claim_pv;
-    const r = t === 'uv' ? item.redeem_uv : item.redeem_pv;
-    item.exposure_claim_rate = e > 0 ? c / e : 0;
-    item.claim_redeem_rate = c > 0 ? r / c : 0;
-    item.exposure_redeem_rate = e > 0 ? r / e : 0;
+    // 转化率用生命周期累计（周期无关，避免窗口内领取/核销错配虚高）
+    const b = getRateBasis(item);
+    item.exposure_claim_rate = b.exposure > 0 ? b.claim / b.exposure : 0;
+    item.claim_redeem_rate = b.claim > 0 ? b.redeem / b.claim : 0;
+    item.exposure_redeem_rate = b.exposure > 0 ? b.redeem / b.exposure : 0;
     // 到店始终UV口径不变
     item.is_anomaly = isAnomalyActivity(item);
   }
@@ -568,7 +570,7 @@ function openLayer3(catKey, activityId, brandId) {
           </tbody>
         </table>
         <div class="cmp-note">数据更新时间：${latestByBrand[item.brand_id]?.report_date || '-'}</div>
-        <div class="cmp-note" style="margin-top:4px;font-size:10px;color:#94A3B8">口径说明：转化率为活动维度${isPV ? 'PV' : 'UV'}口径；到店${isPV ? '次数' : '人数'} ${item.is_multi_use ? '= 领取 × 领取到店率（次卡场景）' : '= 核销 / 到店核销率'}（预估）</div>
+        <div class="cmp-note" style="margin-top:4px;font-size:10px;color:#94A3B8">口径说明：转化率为活动累计口径（与所选时间范围无关）；到店${isPV ? '次数' : '人数'} ${item.is_multi_use ? '= 领取 × 领取到店率（次卡场景）' : '= 核销 / 到店核销率'}（预估）</div>
       </div>
     </div>
   </div>`;
@@ -648,6 +650,10 @@ function generateDiagCard() {
   const totalExpPv = brandActivities.reduce((s, a) => s + a.exposure_pv, 0);
   const totalClmPv = brandActivities.reduce((s, a) => s + a.claim_pv, 0);
   const totalRdmPv = brandActivities.reduce((s, a) => s + a.redeem_pv, 0);
+  // 累计口径合计（用于转化率，与时间范围无关）
+  const totalExpPvCum = brandActivities.reduce((s, a) => s + (a.exposure_pv_cum || 0), 0);
+  const totalClmPvCum = brandActivities.reduce((s, a) => s + (a.claim_pv_cum || 0), 0);
+  const totalRdmPvCum = brandActivities.reduce((s, a) => s + (a.redeem_pv_cum || 0), 0);
 
   const meds = catMedians[catKey] || {};
   const storeRate = parseRateValue(brand.w7_store_redeem_rate_uv);
@@ -675,11 +681,11 @@ function generateDiagCard() {
       <td title="${act.activity_name}${act.batch_name ? '\n券: '+act.batch_name : ''}" style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${act.activity_name}${act.batch_name ? ' <span style="color:#94a3b8;font-size:10px">('+act.batch_name+')</span>' : ''}</td>
       <td>${fmtNum(act.exposure_pv)}</td><td>${fmtNum(act.claim_pv)}</td><td>${fmtNum(act.redeem_pv)}</td>
       <td>${fmtPct(expShare)}</td><td>${fmtPct(clmShare)}</td><td>${fmtPct(rdmShare)}</td>
-      <td class="${act.pv_exposure_claim > (meds.exposure_claim||0) ? 'rate-above' : 'rate-below'}">${fmtPct(act.pv_exposure_claim || (act.exposure_pv > 0 ? act.claim_pv/act.exposure_pv : 0))}</td>
+      <td class="${(act.exposure_pv_cum > 0 ? act.claim_pv_cum/act.exposure_pv_cum : 0) > (meds.exposure_claim||0) ? 'rate-above' : 'rate-below'}">${fmtPct(act.exposure_pv_cum > 0 ? act.claim_pv_cum/act.exposure_pv_cum : 0)}</td>
       <td style="color:var(--text-muted)">${fmtPct(meds.exposure_claim)}</td>
-      <td class="${act.pv_claim_redeem > (meds.claim_redeem||0) ? 'rate-above' : 'rate-below'}">${fmtPct(act.claim_pv > 0 ? act.redeem_pv/act.claim_pv : 0)}</td>
+      <td class="${(act.claim_pv_cum > 0 ? act.redeem_pv_cum/act.claim_pv_cum : 0) > (meds.claim_redeem||0) ? 'rate-above' : 'rate-below'}">${fmtPct(act.claim_pv_cum > 0 ? act.redeem_pv_cum/act.claim_pv_cum : 0)}</td>
       <td style="color:var(--text-muted)">${fmtPct(meds.claim_redeem)}</td>
-      <td class="${act.pv_exposure_redeem > (meds.exposure_redeem||0) ? 'rate-above' : 'rate-below'}">${fmtPct(act.exposure_pv > 0 ? act.redeem_pv/act.exposure_pv : 0)}</td>
+      <td class="${(act.exposure_pv_cum > 0 ? act.redeem_pv_cum/act.exposure_pv_cum : 0) > (meds.exposure_redeem||0) ? 'rate-above' : 'rate-below'}">${fmtPct(act.exposure_pv_cum > 0 ? act.redeem_pv_cum/act.exposure_pv_cum : 0)}</td>
       <td style="color:var(--text-muted)">${fmtPct(meds.exposure_redeem)}</td>
       <td class="${storeRate > (meds.store_redeem||0) ? 'rate-above' : 'rate-below'}">${fmtPct(storeRate)}</td>
       <td style="color:var(--text-muted)">${fmtPct(meds.store_redeem)}</td>
@@ -693,9 +699,9 @@ function generateDiagCard() {
   html += `</tbody><tfoot><tr style="font-weight:600;background:#F0F5FF">
     <td>🔖 品牌汇总</td><td>${fmtNum(totalExpPv)}</td><td>${fmtNum(totalClmPv)}</td><td>${fmtNum(totalRdmPv)}</td>
     <td colspan="3"></td>
-    <td>${fmtPct(totalExpPv > 0 ? totalClmPv/totalExpPv : 0)}</td><td></td>
-    <td>${fmtPct(totalClmPv > 0 ? totalRdmPv/totalClmPv : 0)}</td><td></td>
-    <td>${fmtPct(totalExpPv > 0 ? totalRdmPv/totalExpPv : 0)}</td><td></td>
+    <td>${fmtPct(totalExpPvCum > 0 ? totalClmPvCum/totalExpPvCum : 0)}</td><td></td>
+    <td>${fmtPct(totalClmPvCum > 0 ? totalRdmPvCum/totalClmPvCum : 0)}</td><td></td>
+    <td>${fmtPct(totalExpPvCum > 0 ? totalRdmPvCum/totalExpPvCum : 0)}</td><td></td>
     <td colspan="2">1店几核: ${storeRedeem1 && storeRedeem1 !== '<NA>' ? parseFloat(storeRedeem1).toFixed(2) : '-'}</td>
   </tr></tfoot></table>`;
 

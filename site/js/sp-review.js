@@ -159,19 +159,19 @@ function renderSpReview(container, sp, spBrands, brandDaily, activitiesForTop3, 
 
   // ===== B. 服务商品牌 Top3 =====
   html += `<div style="margin-bottom:24px"><h3 style="font-size:15px;font-weight:700;color:#1e293b;margin-bottom:4px">🏆 ${sp} 品牌 · 分业态转化率 Top3</h3>`;
-  html += `<p style="font-size:11px;color:#94a3b8;margin:0 0 12px">统计口径：${periodLabel}日均 · UV曝光核销率</p>`;
+  html += `<p style="font-size:11px;color:#94a3b8;margin:0 0 12px">统计口径：UV曝光核销率（活动累计口径，与时间范围无关）</p>`;
   html += renderTop3Section(activitiesForTop3, true);
   html += `</div>`;
 
   // ===== C. 品牌明细表 =====
   html += `<div style="margin-bottom:24px"><h3 style="font-size:15px;font-weight:700;color:#1e293b;margin-bottom:4px">📋 品牌状态明细</h3>`;
-  html += `<p style="font-size:11px;color:#94a3b8;margin:0 0 12px">统计周期：${startDate} ~ ${endDate}（PV求和）</p>`;
-  html += renderBrandDetailTable(spBrands, brandDaily, activitiesForDetail);
+  html += `<p style="font-size:11px;color:#94a3b8;margin:0 0 12px">统计周期：${startDate} ~ ${endDate}（数量为区间PV求和，转化率为活动累计口径）</p>`;
+  html += renderBrandDetailTable(spBrands, brandDaily, activitiesForDetail, activitiesForTop3);
   html += `</div>`;
 
   // ===== D. 全行业 Top3 =====
   html += `<div style="margin-bottom:24px"><h3 style="font-size:15px;font-weight:700;color:#1e293b;margin-bottom:4px">🌐 全行业标杆 · 分业态转化率 Top3</h3>`;
-  html += `<p style="font-size:11px;color:#94a3b8;margin:0 0 12px">统计口径：${periodLabel}日均 · UV曝光核销率</p>`;
+  html += `<p style="font-size:11px;color:#94a3b8;margin:0 0 12px">统计口径：UV曝光核销率（活动累计口径，与时间范围无关）</p>`;
   html += renderTop3Section(allActivities, false);
   html += `</div>`;
 
@@ -191,9 +191,10 @@ function renderTop3Section(activities, isSp) {
 
   // 和 best-practice.js 完全一致的计算+异常过滤逻辑
   const items = activities.filter(a => (a.exposure_uv || 0) > 0).map(a => {
-    const eUv = a.exposure_uv || 0;
-    const cUv = a.claim_uv || 0;
-    const rUv = a.redeem_uv || 0;
+    // 转化率用生命周期累计 UV（周期无关，避免窗口内领取/核销错配虚高）
+    const eUv = a.exposure_uv_cum || 0;
+    const cUv = a.claim_uv_cum || 0;
+    const rUv = a.redeem_uv_cum || 0;
     const exposure_claim_rate = eUv > 0 ? cUv / eUv : 0;
     const claim_redeem_rate = cUv > 0 ? rUv / cUv : 0;
     const exposure_redeem_rate = eUv > 0 ? rUv / eUv : 0;
@@ -244,8 +245,8 @@ function renderTop3Section(activities, isSp) {
 }
 
 // ===== 品牌明细表 =====
-function renderBrandDetailTable(spBrands, brandDaily, activities) {
-  // 按品牌聚合活动数据（区间内求和）
+function renderBrandDetailTable(spBrands, brandDaily, activities, viewRows) {
+  // 按品牌聚合活动数据（区间内求和，用于数量列）
   const brandAgg = {};
   activities.forEach(a => {
     const bid = a.brand_id;
@@ -254,6 +255,15 @@ function renderBrandDetailTable(spBrands, brandDaily, activities) {
     brandAgg[bid].redeem += (a.redeem_pv || 0);
     brandAgg[bid].claim += (a.claim_pv || 0);
     if (a.activity_id) brandAgg[bid].actIds.add(a.activity_id);
+  });
+
+  // 转化率口径：用视图行的生命周期累计 PV（周期无关），按品牌汇总
+  const cumByBrand = {};
+  (viewRows || []).forEach(a => {
+    const bid = a.brand_id;
+    if (!cumByBrand[bid]) cumByBrand[bid] = { exp: 0, redeem: 0 };
+    cumByBrand[bid].exp += (a.exposure_pv_cum || 0);
+    cumByBrand[bid].redeem += (a.redeem_pv_cum || 0);
   });
 
   // 品牌日报里的四级类目名称
@@ -286,7 +296,8 @@ function renderBrandDetailTable(spBrands, brandDaily, activities) {
   sorted.forEach(b => {
     const agg = brandAgg[b.brand_id] || {};
     const cat = brandCat[b.brand_id] || '-';
-    const rate = agg.exp > 0 ? (agg.redeem / agg.exp * 100).toFixed(2) + '%' : '-';
+    const cb = cumByBrand[b.brand_id] || {};
+    const rate = cb.exp > 0 ? (cb.redeem / cb.exp * 100).toFixed(2) + '%' : '-';
     const statusColor = b.brand_status === '在线' ? '#059669' : b.brand_status === '流失' ? '#dc2626' : '#d97706';
     html += `<tr style="border-bottom:1px solid #f1f5f9">
       <td style="padding:8px;font-weight:600">${b.brand_name || '-'}</td>
@@ -296,7 +307,7 @@ function renderBrandDetailTable(spBrands, brandDaily, activities) {
       <td style="padding:8px;text-align:center">${agg.exp ? agg.exp.toLocaleString() : '-'}</td>
       <td style="padding:8px;text-align:center">${agg.claim ? agg.claim.toLocaleString() : '-'}</td>
       <td style="padding:8px;text-align:center">${agg.redeem ? agg.redeem.toLocaleString() : '-'}</td>
-      <td style="padding:8px;text-align:center;font-weight:600;color:${agg.exp > 0 ? '#1e293b' : '#94a3b8'}">${rate}</td>
+      <td style="padding:8px;text-align:center;font-weight:600;color:${cb.exp > 0 ? '#1e293b' : '#94a3b8'}">${rate}</td>
     </tr>`;
   });
 
