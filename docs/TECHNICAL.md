@@ -1,10 +1,10 @@
 # 活动运营数据看板 — 技术文档
 
-> 最后更新：2026-04-22
+> 最后更新：2026-07-15
 > 仓库：`jingnanss21-rgb/act_temp`
-> 线上地址：`https://act-temp.pages.dev`
+> 线上地址：`https://act-temp.pages.dev`（Cloudflare Pages）与 `https://act-dashboard.pages.woa.com`（OA Pages 内网）
 > 密码：`act2026`（SHA-256验证，7天有效期）
-> 部署方式：Cloudflare Pages（Build output: `site`，Build command 留空）
+> 部署方式：两处需分别发布 —— Cloudflare Pages 由 push main 自动部署；OA Pages 用 API 手动更新（见 6.1.2）
 
 ---
 
@@ -313,10 +313,46 @@ const RATE_CAPS = { exposure_claim: 0.40, claim_redeem: 0.80, exposure_redeem: 0
 
 ## 六、部署与运维
 
-### 6.1 Cloudflare Pages
+### 6.1 前端发布（两处，需分别发布）
+
+> ⚠️ 有两个独立的线上入口，改前端后**两处都要发**，否则会出现一处新一处旧。
+
+#### 6.1.1 Cloudflare Pages（`act-temp.pages.dev`）
 - 仓库：`jingnanss21-rgb/act_temp`，Branch: `main`
 - Build output: `site`，Build command: 留空
 - push main自动部署，分支自动预览（如 `v2-frontend.act-temp.pages.dev`）
+
+#### 6.1.2 OA Pages 内网（`act-dashboard.pages.woa.com`）
+- 平台：OA Pages（`https://pages.woa.com`，腾讯内网静态托管），**不随 git push 自动更新**，需用 API 手动增量发布。
+- 该站由 API 创建（非 Git 模式），用 PUT 增量更新；权限 `tof`（需 iOA 登录），更新不影响权限。
+- API Key 在环境变量 `OA_PAGES_API_KEY`（本机已配；申请：`https://pages.woa.com/admin`）。
+- 参考：`~/Desktop/oa-pages-temp/oa-pages`（oa-pages 部署 skill，含 `references/api-reference.md`）。
+- **发布命令**（把 `site/` 整包增量推送）：
+  ```bash
+  # 1) 构建 payload（排除 . 开头文件与 .git 等；二进制 base64）
+  python3 - <<'PY'
+  import os,json,base64
+  ROOT='/Users/jingnanshe/WorkBuddy/20260416110818/site'
+  SKIP={'.git','node_modules','.codebuddy','.codebuddy-plugin','__pycache__'}
+  BIN={'.png','.jpg','.jpeg','.gif','.ico','.webp','.svg','.woff','.woff2','.ttf','.eot','.pdf','.mp3','.mp4','.zip','.tar','.gz'}
+  files={}
+  for dp,dn,fn in os.walk(ROOT):
+      dn[:]=[d for d in dn if d not in SKIP]
+      for f in fn:
+          if f.startswith('.'): continue
+          p=os.path.join(dp,f); rel=os.path.relpath(p,ROOT); ext=os.path.splitext(f)[1].lower()
+          files[rel]=base64.b64encode(open(p,'rb').read()).decode() if ext in BIN else open(p,errors='ignore').read()
+  json.dump({"files":files},open('/tmp/deploy_oa.json','w'),ensure_ascii=False)
+  print("files:",len(files),"KB:",round(os.path.getsize('/tmp/deploy_oa.json')/1024))
+  PY
+  # 2) PUT 增量更新（cname 必须带完整 .pages.woa.com 后缀）
+  curl -s -X PUT https://pages.woa.com/api/sites/act-dashboard.pages.woa.com \
+    -H "X-Api-Key: $OA_PAGES_API_KEY" -H "Content-Type: application/json" \
+    -d @/tmp/deploy_oa.json --max-time 40 -w "\nHTTP=%{http_code}\n"
+  # 3) 验证
+  curl -s https://act-dashboard.pages.woa.com/js/supabase-config.js | grep -c getRateBasis
+  ```
+- 注意：单次请求上限 5MB（base64 膨胀约 33%）；PUT 返回 403 通常表示站点是 Git 模式创建（本站非此情况）。
 
 ### 6.2 定时任务
 见 `sync/SYNC_TASK_PROMPT.md`，核心流程：

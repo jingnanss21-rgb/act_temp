@@ -140,6 +140,11 @@ function computeCategoryStats() {
       storeVisitUv = (!isNaN(storeRedeem) && storeRedeem > 0 && rUv > 0)
         ? Math.round(rUv / storeRedeem) : null;
     }
+    // ── 防御：到店人数不可能小于核销人数（核销是到店的子集）──
+    // 当到店核销率为空/0（如某天同步缺口导致最新一天 rate=NULL）时，
+    // 用核销人数兜底（最保守估计），避免出现"核销>到店"的反常识结果。
+    if (storeVisitUv === null && rUv > 0) storeVisitUv = rUv;
+    if (storeVisitUv !== null && rUv > 0) storeVisitUv = Math.max(storeVisitUv, rUv);
     // 领取到店率：次卡用DB真实值，其他由预估到店反推
     const claimToStoreRate = isMultiUse
       ? (isNaN(dbClaimToStoreRate) ? NaN : dbClaimToStoreRate)
@@ -499,6 +504,19 @@ function renderDiagResult() {
         // 到店人数估算：分次卡/非次卡分别计算后加总
         // 非次卡: 核销UV / 到店核销率
         // 次卡:   领取UV × 领取到店率
+        // 兜底率：先收集所有「到店核销率有效」的活动，取中位数作为品牌级兜底
+        // （用中位数抗极端值，避免被个别异常率拉偏）。用于到店核销率缺失活动的估算。
+        const _validRates = [];
+        for (const _a of b.activities) {
+          const _sr = parseStoreRate(_a.store_redeem_rate_uv);
+          const _ru = _a.redeem_uv || 0;
+          if (!isNaN(_sr) && _sr > 0 && _ru > 0) _validRates.push(_sr);
+        }
+        _validRates.sort((x, y) => x - y);
+        const _fallbackRate = _validRates.length
+          ? _validRates[Math.floor(_validRates.length / 2)]
+          : null;
+
         let storeVisit = 0, storeVisitValid = false;
         for (const a of b.activities) {
           const isMU = a.coupon_type && a.coupon_type.indexOf('次卡') >= 0;
@@ -506,11 +524,19 @@ function renderDiagResult() {
           const cts = parseStoreRate(a.claim_to_store_rate_uv);
           const ru = a.redeem_uv || 0;
           const cu = a.claim_uv || 0;
+          let add = null;
           if (isMU) {
-            if (!isNaN(cts) && cts > 0 && cu > 0) { storeVisit += cu * cts; storeVisitValid = true; }
+            if (!isNaN(cts) && cts > 0 && cu > 0) add = cu * cts;
           } else {
-            if (!isNaN(sr) && sr > 0 && ru > 0) { storeVisit += ru / sr; storeVisitValid = true; }
+            if (!isNaN(sr) && sr > 0 && ru > 0) {
+              add = ru / sr;                          // 正常路径：到店 = 核销 / 到店核销率
+            } else if (_fallbackRate && ru > 0) {
+              add = ru / _fallbackRate;               // 率缺失→用品牌中位率兜底，避免塌成0
+            }
           }
+          // 硬不变量：到店人数不可能小于核销人数（核销是到店的子集）
+          if (add !== null && ru > 0) add = Math.max(add, ru);
+          if (add !== null) { storeVisit += add; storeVisitValid = true; }
         }
         storeVisit = storeVisitValid ? Math.round(storeVisit) : null;
         // 领取到店率 = 预估到店 / 领取

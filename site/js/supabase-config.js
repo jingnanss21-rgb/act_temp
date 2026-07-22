@@ -42,11 +42,38 @@ function getViewName() {
   return 'v_activity_7d';
 }
 
+// 判断是否为「冷缓存语句超时」类可重试错误
+// 重活动视图(v_activity_*)含全历史 SUM，首次冷查询常超过 statement_timeout → PostgREST 返回 500 / 57014。
+// 预热后 0.7~1s 即可成功，故对这类错误做指数退避重试，避免页面首次打开报错。
+function isRetryableDbError(error) {
+  if (!error) return false;
+  const code = String(error.code || '');
+  const status = error.status || error.statusCode;
+  const msg = String(error.message || '').toLowerCase();
+  return code === '57014' || status === 500 || status === 503 || status === 504 ||
+    msg.includes('timeout') || msg.includes('canceling statement') || msg.includes('statement timeout');
+}
+
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
 async function fetchAllFromView(viewName, select) {
   let all = [], offset = 0, limit = 1000;
+  const MAX_RETRY = 4;                 // 每页最多重试次数
+  const BACKOFFS = [800, 1600, 2800, 4000]; // 退避毫秒
   while (true) {
-    const { data, error } = await supabaseClient.from(viewName).select(select || '*').range(offset, offset + limit - 1);
-    if (error) throw error;
+    let data = null, lastErr = null;
+    for (let attempt = 0; attempt <= MAX_RETRY; attempt++) {
+      const res = await supabaseClient.from(viewName).select(select || '*').range(offset, offset + limit - 1);
+      if (!res.error) { data = res.data; lastErr = null; break; }
+      lastErr = res.error;
+      if (attempt < MAX_RETRY && isRetryableDbError(res.error)) {
+        console.warn(`[fetchAllFromView] ${viewName} 第${attempt + 1}次超时(可重试)，退避后重试…`, res.error.code || res.error.message);
+        await sleep(BACKOFFS[Math.min(attempt, BACKOFFS.length - 1)]);
+        continue;
+      }
+      break; // 不可重试或重试用尽
+    }
+    if (lastErr) throw lastErr;
     all = all.concat(data || []);
     if (!data || data.length < limit) break;
     offset += limit;
