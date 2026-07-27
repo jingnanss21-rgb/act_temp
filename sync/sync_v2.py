@@ -89,7 +89,34 @@ FIELD_MAP = {
 FIELD_ALIASES = {
     "品牌id": "brand_id",
     "活动id": "activity_id",
+    # 新 doc 4020370034 的 CSV 中文列名（旧 doc 与之对应的名字见 FIELD_MAP）
+    "批次id": "batch_id",           # 旧 doc 老格式: 券批次id
+    "投放开始时间": "start_date",    # 旧 doc 老格式: 活动开始时间
+    "投放结束时间": "end_date",      # 旧 doc 老格式: 活动结束时间
     "活动价格力": "price_power",
+    # 旧 doc 2026-07-06 起的中文正式命名（简化列名，含单位后缀）
+    "批次ID":          "batch_id",
+    "品类":            "category_name",
+    "活动开始日期":    "start_date",
+    "活动结束日期":    "end_date",
+    "优惠门槛(分)":    "threshold_amount",
+    "优惠金额(分)":    "discount_amount",
+    "单用户领取上限":  "single_user_limit",
+    "单日领取上限":    "daily_limit",
+    "曝光数":          "exposure_pv",
+    "领取数":          "claim_pv",
+    "核销数":          "redeem_pv",
+    "曝光用户数":      "exposure_uv",
+    "领取用户数":      "claim_uv",
+    "核销用户数":      "redeem_uv",
+    # 兜底 doc(4020370034) 裸表头（无"最大值"/"当日"前缀）
+    "曝光uin数":       "exposure_uv",
+    "领取uin数":       "claim_uv",
+    "核销uin数":       "redeem_uv",
+    "领取到店率":      "claim_to_store_rate_uv",
+    "到店核销率":      "store_redeem_rate_uv",
+    "核销到店率":      "redeem_to_store_rate_uv",
+    "到店未达门槛占比": "store_below_threshold",
     "近7日均_到店核销率UV": "store_redeem_rate_uv",
     "近7日均_到店核销率_UV": "store_redeem_rate_uv",
     "近7日均_到店未达门槛占比_uv": "store_below_threshold",
