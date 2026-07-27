@@ -18,11 +18,29 @@
   python build_biweekly_tab.py
 依赖：python3（无需第三方库）
 """
-import re, json, base64, pathlib, sys
+import re, json, base64, pathlib, sys, argparse
 
-SRC = pathlib.Path('/Users/jingnanshe/WorkBuddy/2026-07-16-22-03-21/research/biweekly_report_v2.html')
+DEFAULT_SRC = pathlib.Path('/Users/jingnanshe/WorkBuddy/2026-07-16-22-03-21/research/biweekly_report_v2.html')
 OUT = pathlib.Path(__file__).resolve().parent / 'biweekly'
 CHUNK_CHARS = 3_000_000   # base64 字符上限（每块 < 5MB 请求体）
+
+def inject_data(html_text, data_text):
+    """把模板 HTML 中 `const DATA = {...}` 替换为 data_text（滚动 DATA 的 JSON 字符串）。"""
+    key = 'const DATA = '
+    start = html_text.index(key) + len(key)
+    assert html_text[start] == '{', 'DATA 起点不是 {'
+    depth = 0
+    end = None
+    for j in range(start, len(html_text)):
+        if html_text[j] == '{':
+            depth += 1
+        elif html_text[j] == '}':
+            depth -= 1
+            if depth == 0:
+                end = j + 1
+                break
+    assert end is not None, '未找到 DATA 结束 }'
+    return html_text[:start] + data_text + html_text[end:]
 
 def scope_sel(sel):
     res = []
@@ -78,10 +96,23 @@ def scope_css(css):
     return ''.join(out)
 
 def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument('--src', type=pathlib.Path, default=DEFAULT_SRC,
+                   help='模板 HTML（含 CSS/Chart.js/渲染逻辑，DATA 可被 --data-json 覆盖）')
+    ap.add_argument('--data-json', type=pathlib.Path, default=None,
+                   help='滚动 DATA 的 JSON 文件，覆盖模板中的 const DATA（日更用）')
+    a = ap.parse_args()
+    SRC = a.src
     if not SRC.exists():
         print('SRC missing:', SRC); sys.exit(1)
     OUT.mkdir(parents=True, exist_ok=True)
     html = SRC.read_text(encoding='utf-8')
+    if a.data_json:
+        assert a.data_json.exists(), f'data-json missing: {a.data_json}'
+        data_text = a.data_json.read_text(encoding='utf-8')
+        json.loads(data_text)   # 合法性校验
+        html = inject_data(html, data_text)
+        print('DATA injected from', a.data_json)
 
     # ---- 1) CSS（head 内 + body 内两段 <style> 合并后作用域限定）----
     head_styles = re.findall(r'<style[^>]*>(.*?)</style>', html, re.S)
@@ -93,8 +124,8 @@ def main():
 
     # ---- 2) 抽取脚本：script[0]=Chart.js, script[1]=逻辑+DATA ----
     scripts = re.findall(r'<script>(.*?)</script>', html, re.S)
-    chart = next((s for s in scripts if 'Chart' in s[:3000] and ('function Chart' in s or 'class Chart' in s or 'VERSION' in s)), None)
-    # 兜底：长度最大的含 Chart 的块
+    # Chart.js = 不含业务逻辑 `const DATA` 的脚本（避免 DATA 中恰含 'Chart' 字样时误选逻辑块）
+    chart = next((s for s in scripts if 'const DATA' not in s and 'Chart' in s), None)
     if chart is None:
         chart = max((s for s in scripts if 'Chart' in s), key=len)
     assert chart and 'Chart' in chart[:5000], 'Chart.js not found'
@@ -121,6 +152,34 @@ def main():
         part = b64[i*CHUNK_CHARS:(i+1)*CHUNK_CHARS]
         (OUT/f'bw_data_{i+1}.js').write_text(f'window.__bw_b64=(window.__bw_b64||"")+"{part}";', encoding='utf-8')
     print(f'DATA -> {n} base64 chunks ({len(b64)} chars total)')
+
+    # 清理上次遗留的多余分块（块数变小时避免旧数据拼接进来）
+    stale = 0
+    for old in OUT.glob('bw_data_*.js'):
+        try:
+            idx = int(old.stem.split('_')[-1])
+        except ValueError:
+            continue
+        if idx > n:
+            old.unlink(); stale += 1
+    if stale:
+        print(f'removed {stale} stale chunk(s)')
+
+    # ---- 3.5) 同步 index.html 的分块加载列表（块数每天可能变化） ----
+    index_path = OUT.parent / 'index.html'
+    if index_path.exists():
+        idx_html = index_path.read_text(encoding='utf-8')
+        chunk_list = ','.join(f"'biweekly/bw_data_{i+1}.js'" for i in range(n))
+        new_html, cnt = re.subn(r"'biweekly/bw_data_1\.js'(?:\s*,\s*'biweekly/bw_data_\d+\.js')*",
+                                chunk_list, idx_html)
+        if cnt:
+            if new_html != idx_html:
+                index_path.write_text(new_html, encoding='utf-8')
+                print(f'index.html chunk list synced -> {n} chunks')
+            else:
+                print(f'index.html chunk list already up-to-date ({n} chunks)')
+        else:
+            print('WARN: chunk list pattern not found in index.html, sync manually')
 
     # ---- 4) 逻辑改编 ----
     logic = app[end:].lstrip()

@@ -1,0 +1,43 @@
+<div id="biweekly-report-section" style="display:none;">
+<body>
+<header>
+  <h1>货盘双周报分析看板</h1>
+  <span class="badge">真实数据</span>
+  <span class="note" id="winNote">双周窗口</span>
+</header>
+
+<div class="tabs" id="tabs">
+  <div class="tab active" data-tab="ka">KA</div>
+  <div class="tab" data-tab="waist">腰部</div>
+  <div class="tab" data-tab="overall">整体</div>
+  <div class="tab" data-tab="brand">品牌明细</div>
+</div>
+
+<!-- ===================== 整体 / KA / 腰部：通用 segment 面板 ===================== -->
+<div class="panel" id="panel-overall"></div>
+<div class="panel active" id="panel-ka"></div>
+<div class="panel" id="panel-waist"></div>
+
+<!-- ===================== 品牌明细 ===================== -->
+
+<div class="panel" id="panel-brand">
+  <!-- 筛选栏 -->
+  <section>
+    <h2>品牌明细筛选</h2>
+    <div class="filters">
+      <label>品牌ID
+        <input id="f-bid" placeholder="如 2746">
+      </label>
+      <label>品牌名称
+        <input id="f-bname" placeholder="如 蜜雪冰城">
+      </label>
+      <button id="f-go">查询</button>
+      <button class="ghost" id="f-reset">重置</button>
+    </div>
+    <div class="muted" id="brand-count"></div>
+  </section>
+
+  <!-- 动态内容区：KPI + 子tab + 图表/表格 由 JS 渲染 -->
+  <div id="brand-content"></div>
+</div>
+</div>
