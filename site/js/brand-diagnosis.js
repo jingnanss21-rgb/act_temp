@@ -20,6 +20,8 @@ let diagCurrentBrand = null;
 let diagSelectedMetric = 'exposure_claim';
 let diagViewMode = 'card';
 let diagMode = 'full'; // 'full' | 'external'
+let diagTrendCache = { brandId: null, dates: [], byDate: {} }; // 趋势线按日数据缓存
+let diagTrendChart = null; // Chart.js 实例
 
 const DIAG_METRICS = [
   { key: 'exposure_claim', label: '曝光领取率', desc: '券吸引力' },
@@ -619,6 +621,14 @@ function renderDiagResult() {
         + '</div>' : ''}
     </div>
 
+    <!-- 区域 B2: 品牌转化趋势线 -->
+    <div class="diag-card" style="animation:fadeInUp 0.6s ease" id="diag-trend-card">
+      <h3 class="diag-section-title" style="margin-bottom:4px">📈 品牌转化趋势线 <span style="font-size:12px;color:#94A3B8;font-weight:400">近30天 · 按日 · ${(window.currentMetricType||'uv')==='pv'?'PV':'UV'}口径</span></h3>
+      <div id="diag-trend-body" style="position:relative;height:260px">
+        <div class="loading" style="padding:40px 0"><div class="spinner"></div></div>
+      </div>
+    </div>
+
     <!-- 区域 C: 行业标杆参考 -->
     <div class="diag-card diag-area-c" style="animation:fadeInUp 0.7s ease" id="diag-area-c">
       <div id="diag-benchmark-content"></div>
@@ -644,6 +654,7 @@ function renderDiagResult() {
 
   renderScoreRing(totalScore, scoreColor, scoreLabel);
   renderBenchmark();
+  renderDiagTrend();
   // 显示导出按钮
   const exportBtn = document.getElementById('diag-export-btn');
   if (exportBtn) exportBtn.style.display = 'inline-block';
@@ -783,6 +794,174 @@ function renderDiagRadar() {
       textStyle: { fontSize: 11, color: '#6B7280' },
     },
   });
+}
+
+// ============================================================
+// 区域 B2: 品牌转化趋势线（近30天按日 · 曝光/核销双Y轴折线）
+// ============================================================
+function loadChartJsOnce() {
+  // 复用双周报自带的本地 Chart.js（UMD v4.4.1），避免额外 CDN 依赖
+  return new Promise((resolve, reject) => {
+    if (window.Chart) { resolve(); return; }
+    if (window.__diagChartLoading) {
+      window.__diagChartLoading.push(resolve);
+      return;
+    }
+    window.__diagChartLoading = [resolve];
+    const s = document.createElement('script');
+    s.src = 'biweekly/biweekly-chart.js';
+    s.onload = () => { (window.__diagChartLoading || []).forEach(fn => fn()); window.__diagChartLoading = null; };
+    s.onerror = () => reject(new Error('Chart.js 加载失败'));
+    document.head.appendChild(s);
+  });
+}
+
+async function fetchDiagTrendData(brandId) {
+  if (diagTrendCache.brandId === brandId && diagTrendCache.dates.length > 0) return diagTrendCache;
+
+  // 近30天窗口：以库里最新日期为基准往前推29天
+  const { data: latestRows } = await supabaseClient
+    .from('tem_activity_daily')
+    .select('report_date')
+    .order('report_date', { ascending: false })
+    .limit(1);
+  const maxDate = latestRows && latestRows.length > 0 ? latestRows[0].report_date : null;
+  if (!maxDate) return { brandId, dates: [], byDate: {} };
+  const start = new Date(maxDate);
+  start.setDate(start.getDate() - 29);
+  const startStr = start.toISOString().substring(0, 10);
+
+  // 分页拉该品牌近30天全部按日记录
+  let all = [], offset = 0, limit = 1000;
+  while (true) {
+    const { data, error } = await supabaseClient
+      .from('tem_activity_daily')
+      .select('report_date,exposure_uv,exposure_pv,redeem_uv,redeem_pv')
+      .eq('brand_id', brandId)
+      .gte('report_date', startStr)
+      .order('report_date', { ascending: true })
+      .range(offset, offset + limit - 1);
+    if (error) throw error;
+    all = all.concat(data || []);
+    if (!data || data.length < limit) break;
+    offset += limit;
+  }
+
+  // 按日汇总（同一天多个活动求和），UV/PV 都存，切口径无需重新请求
+  const byDate = {};
+  for (const r of all) {
+    const d = r.report_date;
+    if (!byDate[d]) byDate[d] = { exposure_uv: 0, exposure_pv: 0, redeem_uv: 0, redeem_pv: 0 };
+    byDate[d].exposure_uv += r.exposure_uv || 0;
+    byDate[d].exposure_pv += r.exposure_pv || 0;
+    byDate[d].redeem_uv += r.redeem_uv || 0;
+    byDate[d].redeem_pv += r.redeem_pv || 0;
+  }
+  const dates = Object.keys(byDate).sort();
+  diagTrendCache = { brandId, dates, byDate };
+  return diagTrendCache;
+}
+
+async function renderDiagTrend() {
+  const body = document.getElementById('diag-trend-body');
+  if (!body || !diagCurrentBrand) return;
+  const brandId = diagCurrentBrand.brand_id;
+
+  try {
+    const [trend] = await Promise.all([fetchDiagTrendData(brandId), loadChartJsOnce()]);
+    // 异步期间用户可能已切换品牌
+    if (!diagCurrentBrand || diagCurrentBrand.brand_id !== brandId) return;
+    const bodyNow = document.getElementById('diag-trend-body');
+    if (!bodyNow) return;
+
+    if (trend.dates.length === 0) {
+      bodyNow.innerHTML = '<div style="padding:40px 0;text-align:center;color:#94A3B8;font-size:13px">近30天暂无按日数据</div>';
+      return;
+    }
+
+    const t = window.currentMetricType || 'uv';
+    const isExt = diagMode === 'external'; // 对外版不展示曝光数据，与其他区域保持一致
+    const labels = trend.dates.map(d => d.substring(5)); // "2026-07-20" → "07-20"
+    const exposureData = trend.dates.map(d => trend.byDate[d]['exposure_' + t]);
+    const redeemData = trend.dates.map(d => trend.byDate[d]['redeem_' + t]);
+    const unitWord = t === 'pv' ? '次数' : '人数';
+
+    bodyNow.innerHTML = '<canvas id="diag-trend-canvas"></canvas>';
+    const ctx = document.getElementById('diag-trend-canvas').getContext('2d');
+
+    if (diagTrendChart) { try { diagTrendChart.destroy(); } catch (e) {} diagTrendChart = null; }
+
+    const datasets = [];
+    if (!isExt) {
+      datasets.push({
+        label: '曝光' + unitWord,
+        data: exposureData,
+        borderColor: '#2563EB',
+        backgroundColor: 'rgba(37,99,235,0.08)',
+        fill: true,
+        tension: 0.3,
+        pointRadius: 2,
+        pointHoverRadius: 4,
+        borderWidth: 2,
+        yAxisID: 'yExposure',
+      });
+    }
+    datasets.push({
+      label: '核销' + unitWord,
+      data: redeemData,
+      borderColor: '#F59E0B',
+      backgroundColor: 'rgba(245,158,11,0.08)',
+      fill: isExt,
+      tension: 0.3,
+      pointRadius: 2,
+      pointHoverRadius: 4,
+      borderWidth: 2,
+      yAxisID: 'yRedeem',
+    });
+
+    diagTrendChart = new Chart(ctx, {
+      type: 'line',
+      data: { labels: labels, datasets: datasets },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        interaction: { mode: 'index', intersect: false },
+        plugins: {
+          legend: { position: 'top', align: 'end', labels: { boxWidth: 12, boxHeight: 12, font: { size: 12 }, color: '#475569' } },
+          tooltip: {
+            callbacks: {
+              label: (item) => item.dataset.label + ': ' + Number(item.raw).toLocaleString('zh-CN'),
+            },
+          },
+        },
+        scales: (function() {
+          const sc = {
+            x: { grid: { display: false }, ticks: { color: '#94A3B8', font: { size: 10 }, maxTicksLimit: 15 } },
+            yRedeem: {
+              position: isExt ? 'left' : 'right',
+              title: { display: true, text: '核销' + unitWord, color: '#F59E0B', font: { size: 11 } },
+              ticks: { color: '#F59E0B', font: { size: 10 }, callback: (v) => v >= 10000 ? (v / 10000) + 'w' : v },
+              grid: isExt ? { color: '#F1F5F9' } : { drawOnChartArea: false },
+              beginAtZero: true,
+            },
+          };
+          if (!isExt) {
+            sc.yExposure = {
+              position: 'left',
+              title: { display: true, text: '曝光' + unitWord, color: '#2563EB', font: { size: 11 } },
+              ticks: { color: '#2563EB', font: { size: 10 }, callback: (v) => v >= 10000 ? (v / 10000) + 'w' : v },
+              grid: { color: '#F1F5F9' },
+              beginAtZero: true,
+            };
+          }
+          return sc;
+        })(),
+      },
+    });
+  } catch (err) {
+    const bodyNow = document.getElementById('diag-trend-body');
+    if (bodyNow) bodyNow.innerHTML = '<div style="padding:40px 0;text-align:center;color:#DC2626;font-size:13px">趋势数据加载失败: ' + err.message + '</div>';
+  }
 }
 
 // ============================================================
@@ -1001,7 +1180,7 @@ function renderDiagActivities() {
     }
 
     return `<div class="diag-activity-card">
-      <div class="diag-act-card-name">${a.activity_name}</div>
+      <div class="diag-act-card-name">${a.activity_name} <span style="font-size:11px;color:#94a3b8;font-weight:400">(ID: ${a.activity_id})</span></div>
       <div class="diag-act-blocks">
         ${!isExt ? `<div class="diag-act-block diag-act-block-exposure">
           <div class="diag-act-block-label">曝光</div>
@@ -1080,7 +1259,7 @@ function renderDiagCompareTable() {
   html += '<thead><tr><th class="diag-ct-th-label">指标</th>';
   for (const a of activities) {
     const name = a.activity_name.length > 10 ? a.activity_name.slice(0, 10) + '…' : a.activity_name;
-    html += '<th class="diag-ct-th-act" title="' + a.activity_name.replace(/"/g, '&quot;') + '">' + name + '</th>';
+    html += '<th class="diag-ct-th-act" title="' + a.activity_name.replace(/"/g, '&quot;') + ' (ID: ' + a.activity_id + ')">' + name + '<br><span style="font-size:10px;color:#94a3b8;font-weight:400">ID: ' + a.activity_id + '</span></th>';
   }
   html += '</tr></thead><tbody>';
 

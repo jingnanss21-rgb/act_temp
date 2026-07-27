@@ -1,0 +1,232 @@
+#biweekly-report-section {
+    --bg:#f5f6f8; --card:#ffffff; --ink:#1f2329; --sub:#646a73; --line:#e5e6eb;
+    --blue:#2f6bff; --green:#14b86e; --red:#f5455c; --amber:#ff9f1a; --purple:#7c5cff;
+    --soft:#f0f3ff;
+  }
+#biweekly-report-section * {box-sizing:border-box}
+#biweekly-report-section {margin:0;background:var(--bg);color:var(--ink);font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;font-size:14px}
+#biweekly-report-section header {padding:14px 22px;background:var(--card);border-bottom:1px solid var(--line);display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+#biweekly-report-section header h1 {font-size:18px;margin:0;font-weight:700}
+#biweekly-report-section .badge {background:var(--amber);color:#fff;font-size:12px;padding:2px 9px;border-radius:10px;font-weight:600}
+#biweekly-report-section .note {color:var(--sub);font-size:12px}
+#biweekly-report-section .tabs {display:flex;gap:4px;padding:10px 22px 0;background:var(--card);border-bottom:1px solid var(--line);flex-wrap:wrap}
+#biweekly-report-section .tab {padding:9px 18px;cursor:pointer;border:1px solid transparent;border-bottom:none;border-radius:8px 8px 0 0;color:var(--sub);font-weight:600}
+#biweekly-report-section .tab.active {background:var(--bg);color:var(--ink);border-color:var(--line)}
+#biweekly-report-section .panel {display:none;padding:18px 22px 50px}
+#biweekly-report-section .panel.active {display:block}
+#biweekly-report-section section {background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px 18px;margin-bottom:18px}
+#biweekly-report-section section h2 {font-size:15px;margin:0 0 14px;padding-left:9px;border-left:4px solid var(--blue)}
+#biweekly-report-section section h3 {font-size:13px;margin:18px 0 8px;color:var(--sub)}
+#biweekly-report-section .kpis {display:grid;grid-template-columns:repeat(4,1fr);gap:14px}
+#biweekly-report-section .kpi {background:var(--soft);border-radius:10px;padding:14px 16px}
+#biweekly-report-section .kpi .lab {color:var(--sub);font-size:12px}
+#biweekly-report-section .kpi .val {font-size:24px;font-weight:700;margin:6px 0 2px}
+#biweekly-report-section .kpi .chg {font-size:12px;font-weight:600}
+#biweekly-report-section .up {color:var(--red)}
+#biweekly-report-section .down {color:var(--green)}
+#biweekly-report-section .grid2 {display:grid;grid-template-columns:1fr 1fr;gap:18px}
+#biweekly-report-section .grid3 {display:grid;grid-template-columns:repeat(3,1fr);gap:18px}
+#biweekly-report-section canvas {max-width:100%}
+#biweekly-report-section table {width:100%;border-collapse:collapse;font-size:13px;margin-top:6px}
+#biweekly-report-section th, #biweekly-report-section td {padding:8px 10px;border-bottom:1px solid var(--line);text-align:left}
+#biweekly-report-section th {background:#fafbfc;color:var(--sub);font-weight:600;position:sticky;top:0}
+#biweekly-report-section tr:hover td {background:#fafbff}
+#biweekly-report-section .pill {display:inline-block;padding:1px 8px;border-radius:9px;font-size:11px;font-weight:600}
+#biweekly-report-section .pill.ka {background:#e8f0ff;color:var(--blue)}
+#biweekly-report-section .pill.waist {background:#eafaf1;color:var(--green)}
+#biweekly-report-section .pill.on {background:#e8f0ff;color:var(--blue)}
+#biweekly-report-section .pill.off {background:#fde8ea;color:var(--red)}
+#biweekly-report-section .pill.new {background:#fff3e0;color:var(--amber)}
+#biweekly-report-section .fold {margin-top:10px;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+#biweekly-report-section .fold>summary {cursor:pointer;padding:9px 12px;background:#fafbfc;color:var(--sub);font-weight:600;list-style:none}
+#biweekly-report-section .fold>summary::-webkit-details-marker {display:none}
+#biweekly-report-section .fold>summary:before {content:"▸ ";color:var(--blue)}
+#biweekly-report-section .fold[open]>summary:before {content:"▾ "}
+#biweekly-report-section .fold .body {padding:12px}
+#biweekly-report-section .filters {display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end;margin-bottom:16px}
+#biweekly-report-section .filters label {display:flex;flex-direction:column;font-size:12px;color:var(--sub);gap:4px}
+#biweekly-report-section .filters input, #biweekly-report-section .filters select {padding:7px 10px;border:1px solid var(--line);border-radius:8px;font-size:13px;min-width:150px}
+#biweekly-report-section .filters button {padding:8px 16px;border:none;border-radius:8px;background:var(--blue);color:#fff;font-weight:600;cursor:pointer}
+#biweekly-report-section .filters button.ghost {background:#fff;color:var(--blue);border:1px solid var(--blue)}
+#biweekly-report-section .muted {color:var(--sub);font-size:12px}
+#biweekly-report-section .conv-banner {margin:10px 0 4px;padding:11px 14px;border-radius:10px;background:#f6f9ff;border:1px solid #e3ecff;font-size:13px;line-height:1.7}
+#biweekly-report-section .conv-banner b {font-weight:700}
+#biweekly-report-section .tag {display:inline-block;padding:1px 8px;border-radius:9px;font-size:11px;font-weight:600}
+#biweekly-report-section .tag.tag-stable {background:#e8f0ff;color:var(--blue)}
+#biweekly-report-section .tag.tag-new {background:#eafaf1;color:var(--green)}
+#biweekly-report-section .tag.tag-off {background:#fde8ea;color:var(--red)}
+#biweekly-report-section .lc-brand-block {margin:10px 0;border:1px solid var(--line);border-radius:10px;overflow:hidden;cursor:pointer;transition:box-shadow .15s}
+#biweekly-report-section .lc-brand-block:hover {box-shadow:0 2px 10px rgba(0,0,0,.07)}
+#biweekly-report-section .lc-brand-head {padding:9px 12px;background:#fafbfc;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+#biweekly-report-section .lc-brand-net {margin-left:auto;font-size:13px;font-weight:600}
+#biweekly-report-section tr.tot td {background:#f3f6ff;font-weight:700;border-top:2px solid var(--line)}
+#biweekly-report-section .warn {background:#fff8e8;border:1px solid #ffe2a8;color:#9a6b00;padding:8px 12px;border-radius:8px;font-size:12px;margin-top:8px}
+#biweekly-report-section .tbl-wrap {max-height:430px;overflow:auto;border:1px solid var(--line);border-radius:8px}
+#biweekly-report-section .legend {display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:var(--sub);margin:4px 0 8px}
+#biweekly-report-section .legend i {display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:5px;vertical-align:middle}
+/* 品牌下钻专用样式 */#biweekly-report-section .bk-header {display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}
+#biweekly-report-section .bk-header h2 {font-size:17px;font-weight:700;margin:0;display:flex;gap:10px;align-items:center}
+#biweekly-report-section .bk-header .close-btn {cursor:pointer;color:#c5c8cc;font-size:20px;line-height:1;padding:0 6px;border-radius:6px}
+#biweekly-report-section .bk-header .close-btn:hover {background:#f0f0f0}
+#biweekly-report-section .bk-kpi-row {display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px}
+#biweekly-report-section .bk-kpi-card {background:#fff;border:1px solid var(--line);border-radius:10px;padding:13px 16px;text-align:center}
+#biweekly-report-section .bk-kpi-card .bk-metric-name {font-size:11px;color:var(--sub);margin-bottom:8px;font-weight:600;letter-spacing:.5px}
+#biweekly-report-section .bk-kpi-card .bk-val-main {font-size:26px;font-weight:800;color:var(--ink);line-height:1.1}
+#biweekly-report-section .bk-kpi-card .bk-val-chg {font-size:12px;margin-top:6px;font-weight:600}
+#biweekly-report-section .bk-val-chg.val-up {color:var(--red)}
+#biweekly-report-section .bk-val-chg.val-down {color:var(--green)}
+#biweekly-report-section .lc-wave-head {display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:4px}
+#biweekly-report-section .lc-kpi {background:#fff;border:1px solid var(--line);border-radius:10px;padding:12px 16px;text-align:center}
+#biweekly-report-section .lc-kpi .lbl {font-size:11px;color:var(--sub);margin-bottom:6px;font-weight:600}
+#biweekly-report-section .lc-kpi .val {font-size:22px;font-weight:800;color:var(--ink)}
+#biweekly-report-section .lc-kpi.net {background:#f7f9ff;border-color:#c9d8ff}
+#biweekly-report-section .lc-kpi.net .val.val-up {color:var(--red)}
+#biweekly-report-section .lc-kpi.net .val.val-down {color:var(--green)}
+#biweekly-report-section .lc-brand-row {cursor:pointer}
+#biweekly-report-section .lc-brand-row:hover {background:#eef3ff}
+#biweekly-report-section .val-up {color:var(--red)}
+#biweekly-report-section .val-down {color:var(--green)}
+#biweekly-report-section .bk-subtabs {display:flex;gap:0;border-bottom:2px solid var(--line);margin-bottom:18px}
+#biweekly-report-section .bk-subtab {padding:9px 22px;cursor:pointer;font-size:13px;font-weight:600;color:var(--sub);border-bottom:2px solid transparent;margin-bottom:-2px}
+#biweekly-report-section .bk-subtab.active {color:var(--blue);border-bottom-color:var(--blue)}
+#biweekly-report-section .bk-section {display:none}
+#biweekly-report-section .bk-section.active {display:block}
+#biweekly-report-section .bk-chart-block {background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px 18px;margin-bottom:14px}
+#biweekly-report-section .bk-chart-block h3 {font-size:13px;color:var(--sub);margin:0 0 10px;font-weight:600}
+#biweekly-report-section .act-full th, #biweekly-report-section .act-full td {white-space:nowrap;padding:7px 9px;font-size:12px}
+#biweekly-report-section .act-full {max-height:500px}
+/* 活动替换对比（以下降活动为中心，找同名同类替代） */#biweekly-report-section .repl-wrap {margin-top:6px}
+#biweekly-report-section .repl-sum {font-size:12px;color:var(--sub);margin-bottom:10px}
+#biweekly-report-section .repl-sum b {font-size:13px}
+#biweekly-report-section .rc-pair {margin:12px 0;border:1px solid var(--line);border-radius:10px;overflow:hidden}
+#biweekly-report-section .rc-ph {display:flex;align-items:center;gap:8px;padding:8px 12px;background:var(--soft,#f0f3ff);font-size:13px;flex-wrap:wrap}
+#biweekly-report-section .rc-tmpl {font-weight:700}
+#biweekly-report-section .rc-aid {color:var(--sub);font-size:11px}
+#biweekly-report-section .rc-note {color:var(--sub);font-size:11px}
+#biweekly-report-section .rc-repcnt {margin-left:auto;color:var(--sub);font-size:12px}
+#biweekly-report-section .rc-cols {display:flex;gap:0}
+#biweekly-report-section .rc-base {flex:1 1 0;padding:8px 10px}
+#biweekly-report-section .rc-reps {flex:2 1 0;padding:8px 10px;display:flex;gap:8px;flex-wrap:wrap;background:rgba(26,158,90,0.03)}
+#biweekly-report-section .rc-reps.no {flex-direction:column}
+#biweekly-report-section .rc-colh {font-size:11px;color:var(--sub);margin-bottom:6px;font-weight:600}
+#biweekly-report-section .rc-card {border:1px solid var(--line);border-radius:8px;padding:7px 9px;background:var(--bg,#fff);flex:1 1 220px;min-width:200px}
+#biweekly-report-section .rc-card.rep {flex:1 1 220px}
+#biweekly-report-section .rc-top {display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+#biweekly-report-section .rc-name {font-weight:600;font-size:12px}
+#biweekly-report-section .rc-aid {color:var(--sub);font-size:11px}
+#biweekly-report-section .rc-d {font-size:14px;font-weight:700;margin:3px 0}
+#biweekly-report-section .rc-u {font-size:10px;font-weight:400;color:var(--sub)}
+#biweekly-report-section .rc-fields {margin-top:4px}
+#biweekly-report-section .rc-f {display:flex;justify-content:space-between;gap:8px;font-size:11px;padding:2px 4px;border-radius:4px;margin:1px 0}
+#biweekly-report-section .rc-fl {color:var(--sub);white-space:nowrap}
+#biweekly-report-section .rc-fv {font-weight:600;text-align:right}
+#biweekly-report-section .rc-diff {background:rgba(199,123,24,0.13)}
+#biweekly-report-section .rc-diff .rc-fv {color:#c77b18}
+#biweekly-report-section .rc-norep {color:#d23b3b;font-weight:600;font-size:12px;padding:10px;text-align:center;width:100%}
+#biweekly-report-section .pill.off {background:rgba(210,59,59,0.12);color:#d23b3b}
+#biweekly-report-section .pill.new {background:rgba(59,108,246,0.12);color:#3b6cf6}
+#biweekly-report-section .pill.on {background:rgba(26,158,90,0.12);color:#1a9e5a}
+/* 品牌趋势：左右并列，固定高度不拉伸变形 */#biweekly-report-section .bk-trend-row {display:flex;gap:12px;flex-wrap:wrap;margin-top:6px}
+#biweekly-report-section .bk-trend-cell {flex:1 1 0;min-width:300px;height:260px;position:relative;
+  background:var(--soft,#f0f3ff);border:1px solid var(--line);border-radius:10px;padding:8px 8px 4px}
+#biweekly-report-section .bk-trend-cap {font-size:12px;color:var(--sub);margin-bottom:4px;font-weight:600}
+/* 核销变化品牌表：可滚动、行可点击 */#biweekly-report-section .bt-scroll {max-height:520px;overflow:auto}
+#biweekly-report-section .bt-row {cursor:pointer}
+#biweekly-report-section .bt-row:hover {background:var(--soft,#f0f3ff)}
+/* 表头可排序 */#biweekly-report-section th.sortable {cursor:pointer;user-select:none;white-space:nowrap}
+#biweekly-report-section th.sortable:hover {color:var(--accent,#2f6bff)}
+#biweekly-report-section th.sorted-asc::after {content:" ▲";font-size:9px}
+#biweekly-report-section th.sorted-desc::after {content:" ▼";font-size:9px}
+/* 影响因素表格更紧凑 */#biweekly-report-section .sldr {font-size:12px}
+#biweekly-report-section .sldr th, #biweekly-report-section .sldr td {padding:4px 6px;white-space:nowrap}
+#biweekly-report-section .sldr td {text-align:left}
+#biweekly-report-section .rate-note {display:block;margin-top:4px;color:var(--sub);font-size:12px}
+/* 影响因素：独立纵排块 */#biweekly-report-section .factor-block {margin-bottom:18px;padding:12px;background:var(--card,#fff);border:1px solid var(--line,#e8eaed);border-radius:8px}
+#biweekly-report-section .factor-block h3 {margin:0 0 4px;font-size:14px}
+#biweekly-report-section .factor-block p {margin:0 0 6px;font-size:12px;color:var(--sub)}
+/* 因素：左侧柱图 + 右侧表格并列 */#biweekly-report-section .factor-row {display:flex;gap:12px;align-items:flex-start}
+#biweekly-report-section .factor-chart {flex:0 0 340px;min-width:300px;height:220px;position:relative}
+#biweekly-report-section .factor-tbl {flex:1;min-width:0}
+/* 品牌下钻专用样式 */#biweekly-report-section .bk-header {display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}
+#biweekly-report-section .bk-header h2 {font-size:17px;font-weight:700;margin:0;display:flex;gap:10px;align-items:center}
+#biweekly-report-section .bk-header .close-btn {cursor:pointer;color:#c5c8cc;font-size:20px;line-height:1;padding:0 6px;border-radius:6px}
+#biweekly-report-section .bk-header .close-btn:hover {background:#f0f0f0}
+#biweekly-report-section .bk-kpi-row {display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px}
+#biweekly-report-section .bk-kpi-card {background:#fff;border:1px solid var(--line);border-radius:10px;padding:13px 16px;text-align:center}
+#biweekly-report-section .bk-kpi-card .bk-metric-name {font-size:11px;color:var(--sub);margin-bottom:8px;font-weight:600;letter-spacing:.5px}
+#biweekly-report-section .bk-kpi-card .bk-val-main {font-size:26px;font-weight:800;color:var(--ink);line-height:1.1}
+#biweekly-report-section .bk-kpi-card .bk-val-chg {font-size:12px;margin-top:6px;font-weight:600}
+#biweekly-report-section .bk-val-chg.val-up {color:var(--red)}
+#biweekly-report-section .bk-val-chg.val-down {color:var(--green)}
+#biweekly-report-section .lc-wave-head {display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:4px}
+#biweekly-report-section .lc-kpi {background:#fff;border:1px solid var(--line);border-radius:10px;padding:12px 16px;text-align:center}
+#biweekly-report-section .lc-kpi .lbl {font-size:11px;color:var(--sub);margin-bottom:6px;font-weight:600}
+#biweekly-report-section .lc-kpi .val {font-size:22px;font-weight:800;color:var(--ink)}
+#biweekly-report-section .lc-kpi.net {background:#f7f9ff;border-color:#c9d8ff}
+#biweekly-report-section .lc-kpi.net .val.val-up {color:var(--red)}
+#biweekly-report-section .lc-kpi.net .val.val-down {color:var(--green)}
+#biweekly-report-section .lc-brand-row {cursor:pointer}
+#biweekly-report-section .lc-brand-row:hover {background:#eef3ff}
+#biweekly-report-section .val-up {color:var(--red)}
+#biweekly-report-section .val-down {color:var(--green)}
+#biweekly-report-section .bk-subtabs {display:flex;gap:0;border-bottom:2px solid var(--line);margin-bottom:18px}
+#biweekly-report-section .bk-subtab {padding:9px 22px;cursor:pointer;font-size:13px;font-weight:600;color:var(--sub);border-bottom:2px solid transparent;margin-bottom:-2px}
+#biweekly-report-section .bk-subtab.active {color:var(--blue);border-bottom-color:var(--blue)}
+#biweekly-report-section .bk-section {display:none}
+#biweekly-report-section .bk-section.active {display:block}
+#biweekly-report-section .bk-chart-block {background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px 18px;margin-bottom:14px}
+#biweekly-report-section .bk-chart-block h3 {font-size:13px;color:var(--sub);margin:0 0 10px;font-weight:600}
+#biweekly-report-section .act-full th, #biweekly-report-section .act-full td {white-space:nowrap;padding:7px 9px;font-size:12px}
+#biweekly-report-section .act-full {max-height:500px}
+/* 活动替换对比（以下降活动为中心，找同名同类替代） */#biweekly-report-section .repl-wrap {margin-top:6px}
+#biweekly-report-section .repl-sum {font-size:12px;color:var(--sub);margin-bottom:10px}
+#biweekly-report-section .repl-sum b {font-size:13px}
+#biweekly-report-section .rc-pair {margin:12px 0;border:1px solid var(--line);border-radius:10px;overflow:hidden}
+#biweekly-report-section .rc-ph {display:flex;align-items:center;gap:8px;padding:8px 12px;background:var(--soft,#f0f3ff);font-size:13px;flex-wrap:wrap}
+#biweekly-report-section .rc-tmpl {font-weight:700}
+#biweekly-report-section .rc-aid {color:var(--sub);font-size:11px}
+#biweekly-report-section .rc-note {color:var(--sub);font-size:11px}
+#biweekly-report-section .rc-repcnt {margin-left:auto;color:var(--sub);font-size:12px}
+#biweekly-report-section .rc-cols {display:flex;gap:0}
+#biweekly-report-section .rc-base {flex:1 1 0;padding:8px 10px}
+#biweekly-report-section .rc-reps {flex:2 1 0;padding:8px 10px;display:flex;gap:8px;flex-wrap:wrap;background:rgba(26,158,90,0.03)}
+#biweekly-report-section .rc-reps.no {flex-direction:column}
+#biweekly-report-section .rc-colh {font-size:11px;color:var(--sub);margin-bottom:6px;font-weight:600}
+#biweekly-report-section .rc-card {border:1px solid var(--line);border-radius:8px;padding:7px 9px;background:var(--bg,#fff);flex:1 1 220px;min-width:200px}
+#biweekly-report-section .rc-card.rep {flex:1 1 220px}
+#biweekly-report-section .rc-top {display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+#biweekly-report-section .rc-name {font-weight:600;font-size:12px}
+#biweekly-report-section .rc-aid {color:var(--sub);font-size:11px}
+#biweekly-report-section .rc-d {font-size:14px;font-weight:700;margin:3px 0}
+#biweekly-report-section .rc-u {font-size:10px;font-weight:400;color:var(--sub)}
+#biweekly-report-section .rc-fields {margin-top:4px}
+#biweekly-report-section .rc-f {display:flex;justify-content:space-between;gap:8px;font-size:11px;padding:2px 4px;border-radius:4px;margin:1px 0}
+#biweekly-report-section .rc-fl {color:var(--sub);white-space:nowrap}
+#biweekly-report-section .rc-fv {font-weight:600;text-align:right}
+#biweekly-report-section .rc-diff {background:rgba(199,123,24,0.13)}
+#biweekly-report-section .rc-diff .rc-fv {color:#c77b18}
+#biweekly-report-section .rc-norep {color:#d23b3b;font-weight:600;font-size:12px;padding:10px;text-align:center;width:100%}
+#biweekly-report-section .pill.off {background:rgba(210,59,59,0.12);color:#d23b3b}
+#biweekly-report-section .pill.new {background:rgba(59,108,246,0.12);color:#3b6cf6}
+#biweekly-report-section .pill.on {background:rgba(26,158,90,0.12);color:#1a9e5a}
+/* 品牌趋势：左右并列，固定高度不拉伸变形 */#biweekly-report-section .bk-trend-row {display:flex;gap:12px;flex-wrap:wrap;margin-top:6px}
+#biweekly-report-section .bk-trend-cell {flex:1 1 0;min-width:300px;height:260px;position:relative;
+  background:var(--soft,#f0f3ff);border:1px solid var(--line);border-radius:10px;padding:8px 8px 4px}
+#biweekly-report-section .bk-trend-cap {font-size:12px;color:var(--sub);margin-bottom:4px;font-weight:600}
+/* 核销变化品牌表：可滚动、行可点击 */#biweekly-report-section .bt-scroll {max-height:520px;overflow:auto}
+#biweekly-report-section .bt-row {cursor:pointer}
+#biweekly-report-section .bt-row:hover {background:var(--soft,#f0f3ff)}
+/* 表头可排序 */#biweekly-report-section th.sortable {cursor:pointer;user-select:none;white-space:nowrap}
+#biweekly-report-section th.sortable:hover {color:var(--accent,#2f6bff)}
+#biweekly-report-section th.sorted-asc::after {content:" ▲";font-size:9px}
+#biweekly-report-section th.sorted-desc::after {content:" ▼";font-size:9px}
+/* 影响因素表格更紧凑 */#biweekly-report-section .sldr {font-size:12px}
+#biweekly-report-section .sldr th, #biweekly-report-section .sldr td {padding:4px 6px;white-space:nowrap}
+#biweekly-report-section .sldr td {text-align:left}
+#biweekly-report-section .rate-note {display:block;margin-top:4px;color:var(--sub);font-size:12px}
+/* 影响因素：独立纵排块 */#biweekly-report-section .factor-block {margin-bottom:18px;padding:12px;background:var(--card,#fff);border:1px solid var(--line,#e8eaed);border-radius:8px}
+#biweekly-report-section .factor-block h3 {margin:0 0 4px;font-size:14px}
+#biweekly-report-section .factor-block p {margin:0 0 6px;font-size:12px;color:var(--sub)}
+/* 因素：左侧柱图 + 右侧表格并列 */#biweekly-report-section .factor-row {display:flex;gap:12px;align-items:flex-start}
+#biweekly-report-section .factor-chart {flex:0 0 340px;min-width:300px;height:220px;position:relative}
+#biweekly-report-section .factor-tbl {flex:1;min-width:0}

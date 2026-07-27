@@ -16,6 +16,7 @@
     body.embed-mode #auth-overlay { display: none !important; }
     body.embed-mode .tab-bar { margin-top: 0; }
   </style>
+  <link rel="stylesheet" href="biweekly/biweekly.css">
 </head>
 <body>
 
@@ -112,6 +113,9 @@
     </div>
     <div class="tab-item" data-tab="sp-review" onclick="switchTab('sp-review')">
       📝 服务商复盘
+    </div>
+    <div class="tab-item" data-tab="biweekly" onclick="switchTab('biweekly')">
+      📦 货盘双周报
     </div>
   </div>
 
@@ -231,6 +235,50 @@
     </div>
   </div>
 
+<div id="biweekly-report-section" style="display:none;">
+<body>
+<header>
+  <h1>货盘双周报分析看板</h1>
+  <span class="badge">真实数据</span>
+  <span class="note" id="winNote">双周窗口</span>
+</header>
+
+<div class="tabs" id="tabs">
+  <div class="tab active" data-tab="ka">KA</div>
+  <div class="tab" data-tab="waist">腰部</div>
+  <div class="tab" data-tab="overall">整体</div>
+  <div class="tab" data-tab="brand">品牌明细</div>
+</div>
+
+<!-- ===================== 整体 / KA / 腰部：通用 segment 面板 ===================== -->
+<div class="panel" id="panel-overall"></div>
+<div class="panel active" id="panel-ka"></div>
+<div class="panel" id="panel-waist"></div>
+
+<!-- ===================== 品牌明细 ===================== -->
+
+<div class="panel" id="panel-brand">
+  <!-- 筛选栏 -->
+  <section>
+    <h2>品牌明细筛选</h2>
+    <div class="filters">
+      <label>品牌ID
+        <input id="f-bid" placeholder="如 2746">
+      </label>
+      <label>品牌名称
+        <input id="f-bname" placeholder="如 蜜雪冰城">
+      </label>
+      <button id="f-go">查询</button>
+      <button class="ghost" id="f-reset">重置</button>
+    </div>
+    <div class="muted" id="brand-count"></div>
+  </section>
+
+  <!-- 动态内容区：KPI + 子tab + 图表/表格 由 JS 渲染 -->
+  <div id="brand-content"></div>
+</div>
+</div>
+
   <!-- Export canvas (hidden) -->
   <div id="export-canvas-area"></div>
 
@@ -254,6 +302,8 @@
       document.getElementById('detail-section').style.display = tabName === 'activity-detail' ? '' : 'none';
       document.getElementById('alert-section').style.display = tabName === 'activity-alerts' ? '' : 'none';
       document.getElementById('sp-review-section').style.display = tabName === 'sp-review' ? '' : 'none';
+      document.getElementById('biweekly-report-section').style.display = tabName === 'biweekly' ? '' : 'none';
+      if (tabName === 'biweekly' && !bwInitialized) { bwInitialized = true; loadBiweekly(); }
 
       if (tabName === 'activity-detail' && detailData.length === 0) {
         loadActivityDetail();
@@ -327,6 +377,38 @@
       loadBestPracticeData();
       updateDateDisplay();
     });
+  </script>
+
+
+  <script>
+    let bwInitialized = false;
+    function loadScriptSeq(urls, done){
+      let i = 0;
+      (function next(){
+        if (i >= urls.length){ done && done(); return; }
+        const s = document.createElement('script');
+        s.src = urls[i++];
+        s.onload = next; s.onerror = next;
+        document.head.appendChild(s);
+      })();
+    }
+    function loadBiweekly(){
+      loadScriptSeq([
+        'biweekly/biweekly-chart.js',
+        'biweekly/bw_data_1.js','biweekly/bw_data_2.js','biweekly/bw_data_3.js','biweekly/bw_data_4.js',
+        'biweekly/biweekly-report.js'
+      ], function(){
+        try {
+          window.__bw_b64 = window.__bw_b64 || "";
+          // base64 -> 二进制字节 -> UTF-8 解码（atob 本身不处理多字节中文，必须走 TextDecoder）
+          const _bin = atob(window.__bw_b64);
+          const _bytes = new Uint8Array(_bin.length);
+          for (let i = 0; i < _bin.length; i++) _bytes[i] = _bin.charCodeAt(i);
+          window.DATA = JSON.parse(new TextDecoder('utf-8').decode(_bytes));
+          if (typeof window.initBiweeklyReport === 'function') window.initBiweeklyReport();
+        } catch(e){ console.error('biweekly init failed', e); }
+      });
+    }
   </script>
 
 </body>
