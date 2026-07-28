@@ -58,21 +58,45 @@ async function initDiagnosis() {
       return all;
     }
 
-    const [actData, mcRes, brandCatRes] = await Promise.all([
+    // 按 brand_id 分块查询品牌四级类目（修复 limit 截断导致类目缺失、打分退化为满分）
+    // 原 .order('report_date',desc).limit(5000) 实际被 Supabase 单请求 1000 行上限钳制，
+    // 且按「行」截断，大量品牌（含鱼酷 2047）进不了映射 → 类目空 → 评分虚假 100。
+    // 现改为：仅查有活动的品牌，分块 in 查询 + 分页全量，每品牌必取到类目。
+    async function fetchBrandCats(brandIds) {
+      const map = {};
+      const CHUNK = 80;
+      for (let i = 0; i < brandIds.length; i += CHUNK) {
+        const chunk = brandIds.slice(i, i + CHUNK);
+        let offset = 0;
+        while (true) {
+          const { data, error } = await supabaseClient
+            .from('tem_brand_daily')
+            .select('brand_id, category_l4, report_date')
+            .in('brand_id', chunk)
+            .order('report_date', { ascending: false })
+            .range(offset, offset + 999);
+          if (error) throw error;
+          for (const r of (data || [])) {
+            // order report_date desc → 每组 brand_id 第一条即最新类目
+            if (r.brand_id != null && r.category_l4 && !map[r.brand_id]) {
+              map[r.brand_id] = r.category_l4;
+            }
+          }
+          if (!data || data.length < 1000) break;
+          offset += 1000;
+        }
+      }
+      return map;
+    }
+
+    const [actData, mcRes] = await Promise.all([
       fetchAllFromView(getViewName(), '*'),
       supabaseClient.from('tem_merchant_contacts').select('brand_id,brand_name,operating_sp,contact_assistant'),
-      supabaseClient.from('tem_brand_daily')
-        .select('brand_id, category_l4')
-        .order('report_date', { ascending: false }).limit(5000),
     ]);
 
-    // 品牌→类目映射（品牌日报四级类目）
-    const brandCatMap = {};
-    for (const r of (brandCatRes.data || [])) {
-      if (r.brand_id && r.category_l4 && !brandCatMap[r.brand_id]) {
-        brandCatMap[r.brand_id] = r.category_l4;
-      }
-    }
+    // 品牌→类目映射（品牌日报四级类目）— 仅查有活动的品牌，确保不遗漏
+    const brandIds = [...new Set((actData || []).map(a => a.brand_id).filter(Boolean))];
+    const brandCatMap = await fetchBrandCats(brandIds);
 
     // 统一写入类目
     for (const a of actData) {
@@ -391,6 +415,21 @@ function runDiagnosis() {
 function renderDiagResult() {
   const b = diagCurrentBrand;
   const cat = b.category;
+  // 防御：类目缺失（未匹配到有效四级类目）时不退化成满分，直接提示暂不评分
+  if (!cat || !DIAG_CATEGORIES.includes(cat)) {
+    const resultDiv = document.getElementById('diag-result');
+    if (resultDiv) {
+      resultDiv.innerHTML = `
+        <div class="diag-card" style="animation:fadeInUp 0.3s ease">
+          <div class="diag-brand-name">${b.brand_name}</div>
+          <div style="padding:28px 24px;color:#DC2626">
+            <p style="font-size:15px;margin:0 0 8px"><strong>类目缺失，暂不评分</strong></p>
+            <p style="color:#666;font-size:13px;line-height:1.6;margin:0">该品牌未匹配到有效类目（四级类目为空），无法计算类目 P85 基准线，故不展示健康评分，以免误判为满分。请补充品牌类目后重试。</p>
+          </div>
+        </div>`;
+    }
+    return;
+  }
   const meds = diagCatMedians[cat] || {};
   const p25 = diagCatP25[cat] || {};
   const p85 = diagCatP85[cat] || {};
