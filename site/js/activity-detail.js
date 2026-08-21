@@ -108,6 +108,12 @@ async function loadActivityDetail() {
     const spRows = spResult.data || [];
     const kaRows = kaResult.data || [];
 
+    // 构建 segmentMap（人群覆盖配置：activity_id → { include, exclude }）
+    segmentMap = {};
+    for (const s of (segmentResult.data || [])) {
+      if (s.activity_id) segmentMap[String(s.activity_id)] = { include: s.freq_include, exclude: s.freq_exclude };
+    }
+
     // 构建置顶品牌集合
     pinnedBrandIds = new Set();
     for (const p of (pinnedResult.data || [])) {
