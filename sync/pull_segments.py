@@ -83,6 +83,12 @@ def download_csv(attachment_id: str, token: str, out_path: str) -> str:
     )
     if r.returncode != 0:
         raise RuntimeError(f"iwiki-cli download 失败: {r.stderr[:300]}")
+    # 校验：下载产物必须是真实全字段表（>1MB），否则多半是错误页/错误附件
+    if not os.path.exists(out_path) or os.path.getsize(out_path) < 1024 * 1024:
+        raise RuntimeError(
+            f"下载产物异常（大小 {os.path.getsize(out_path) if os.path.exists(out_path) else 0} 字节，"
+            f"疑似错误页或非全字段表附件）。请检查 attachmentid 是否正确。"
+        )
     return out_path
 
 
@@ -98,6 +104,13 @@ def extract_segments(csv_path: str) -> list:
     seen = set()
     with open(csv_path, newline="", encoding="utf-8") as f:
         reader = csv.DictReader(f)
+        # 校验：CSV 必须包含所需的定向列，否则说明下载到了错误的文件
+        missing = [c for c in SRC_COLS if c not in (reader.fieldnames or [])]
+        if missing:
+            raise RuntimeError(
+                f"CSV 缺少必需列 {missing}，当前文件列头: {(reader.fieldnames or [])[:8]}... "
+                f"→ 多半下错附件了，请检查最新附件是否「餐饮活动全字段数据(131列)」。"
+            )
         for row in reader:
             aid = (row.get("活动ID") or "").strip()
             if not aid:
@@ -112,6 +125,55 @@ def extract_segments(csv_path: str) -> list:
             })
     print(f"  → 抽取完成：去重后 {len(rows)} 个活动")
     return rows
+
+
+# ============================================================
+# 4. 写库：REST 批量 upsert（绕开 supabase-py + LibreSSL 静默失败 & 子进程逐条丢数据）
+# ============================================================
+def bulk_upsert_rest(table: str, rows: list, batch_size: int = 500):
+    """用 Supabase REST 接口批量 upsert（每批 batch_size 行）。
+
+    返回 (成功数, 失败数)。比 supabase_writer.upsert_batch_subproc（逐条子进程）
+    更稳更快：前者在本机会因进程被中断而只写部分行，且偶发丢值。
+    """
+    import json as _json
+    import urllib.request as _u
+    import urllib.error as _ue
+
+    url = os.environ["SUPABASE_URL"].rstrip("/")
+    key = os.environ["SUPABASE_KEY"]
+    total = len(rows)
+    ok = 0
+    fail = 0
+    for i in range(0, total, batch_size):
+        batch = rows[i:i + batch_size]
+        req = _u.Request(
+            f"{url}/rest/v1/{table}",
+            data=_json.dumps(batch).encode("utf-8"),
+            headers={
+                "apikey": key,
+                "Authorization": f"Bearer {key}",
+                "Content-Type": "application/json",
+                "Prefer": "resolution=merge-duplicates",
+            },
+            method="POST",
+        )
+        try:
+            with _u.urlopen(req, timeout=60) as resp:
+                if resp.status in (200, 201):
+                    ok += len(batch)
+                else:
+                    fail += len(batch)
+                    print(f"  ✗ 批次 {i//batch_size+1} 状态 {resp.status}")
+        except _ue.HTTPError as e:
+            fail += len(batch)
+            print(f"  ✗ 批次 {i//batch_size+1} HTTP {e.code}: {e.read().decode()[:200]}")
+        except Exception as e:
+            fail += len(batch)
+            print(f"  ✗ 批次 {i//batch_size+1} 异常: {e}")
+        if (i // batch_size + 1) % 2 == 0 or i + batch_size >= total:
+            print(f"  进度 {min(i+batch_size, total)}/{total} (成功 {ok}, 失败 {fail})")
+    return ok, fail
 
 
 # ============================================================
@@ -168,10 +230,12 @@ def main():
             print("   样例:", r["activity_id"], parse_segments(r["freq_include"], r["freq_exclude"]))
         return
 
-    # 4. 写库（用子进程版规避 LibreSSL 下 in-process 客户端静默失败）
-    from supabase_writer import upsert_batch_subproc
-    upsert_batch_subproc(None, "act_segment_config", rows, conflict_columns=["activity_id"])
-    print("✓ act_segment_config 同步完成")
+    # 4. 写库（REST 批量 upsert，稳且快；绕开 LibreSSL 静默失败 & 子进程丢数据）
+    ok, fail = bulk_upsert_rest("act_segment_config", rows)
+    if fail:
+        print(f"⚠ act_segment_config 同步完成但有 {fail} 条失败")
+    else:
+        print(f"✓ act_segment_config 同步完成（{ok} 条）")
 
 
 if __name__ == "__main__":
