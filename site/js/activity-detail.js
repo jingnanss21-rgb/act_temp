@@ -89,8 +89,7 @@ async function loadActivityDetail() {
         .select('brand_id, owner').limit(500),
       supabaseClient.from('brand_top_records')
         .select('brand_id').limit(100),
-      supabaseClient.from('act_segment_config')
-        .select('activity_id, freq_include, freq_exclude').limit(10000),
+      fetchAll('act_segment_config', 'activity_id, freq_include, freq_exclude'),
     ]);
 
     // 活动去重：同一 activity_id 只保留一条
@@ -110,7 +109,7 @@ async function loadActivityDetail() {
 
     // 构建 segmentMap（人群覆盖配置：activity_id → { include, exclude }）
     segmentMap = {};
-    for (const s of (segmentResult.data || [])) {
+    for (const s of segmentResult) {
       if (s.activity_id) segmentMap[String(s.activity_id)] = { include: s.freq_include, exclude: s.freq_exclude };
     }
 

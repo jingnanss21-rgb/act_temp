@@ -121,7 +121,7 @@ async function initDiagnosis() {
     const [actData, mcRes, segRes] = await Promise.all([
       fetchAllFromView(getViewName(), '*'),
       supabaseClient.from('tem_merchant_contacts').select('brand_id,brand_name,operating_sp,contact_assistant'),
-      supabaseClient.from('act_segment_config').select('activity_id, freq_include, freq_exclude').limit(10000),
+      fetchAllRows('act_segment_config', 'activity_id, freq_include, freq_exclude'),
     ]);
 
     // 品牌→类目映射（品牌日报四级类目）— 仅查有活动的品牌，确保不遗漏
@@ -143,7 +143,7 @@ async function initDiagnosis() {
 
     // 人群覆盖配置映射（activity_id → 定向字段）
     diagSegMap = {};
-    for (const s of (segRes.data || [])) {
+    for (const s of segRes) {
       if (s.activity_id != null) diagSegMap[String(s.activity_id)] = { include: s.freq_include, exclude: s.freq_exclude };
     }
 
