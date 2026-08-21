@@ -457,7 +457,7 @@ function fmtPricePower(val) {
 // ============================================================
 // 人群覆盖：判定逻辑（与 iwiki 4033860123 规则一致）
 // 输入：定向标签_频次正选 / 定向标签_频次排除（来自 act_segment_config）
-// 三分支：正向定向 / 负向排除 / 通投
+// 三分支（对外统一展示为：定向 / 定向 / 通投，正向定向与负向排除为内部逻辑不区分）
 // ============================================================
 const SEGMENTS = ["高频", "低频", "沉默", "流失", "新客"];
 const FREQ_4 = ["高频", "低频", "沉默", "流失"];
@@ -466,12 +466,12 @@ function parseSegments(includeRaw, excludeRaw) {
   const inc = String(includeRaw || "").split(",").map(s => s.trim()).filter(Boolean);
   const exc = String(excludeRaw || "").split(",").map(s => s.trim().replace("排除", "")).filter(Boolean);
   if (inc.length) {
-    // 分支1：正向定向（不含新客，新客无频次标签）
-    return { mode: "正向定向", segments: FREQ_4.filter(s => inc.includes(s)) };
+    // 分支1：正向定向（不含新客，新客无频次标签）— 对外统一展示为「定向」
+    return { mode: "定向", segments: FREQ_4.filter(s => inc.includes(s)) };
   }
   if (exc.length) {
-    // 分支2：负向排除（含新客，新客永不被"排除高频"类规则排掉）
-    return { mode: "负向排除", segments: FREQ_4.filter(s => !exc.includes(s)).concat(["新客"]) };
+    // 分支2：负向排除（含新客，新客永不被"排除高频"类规则排掉）— 对外统一展示为「定向」
+    return { mode: "定向", segments: FREQ_4.filter(s => !exc.includes(s)).concat(["新客"]) };
   }
   // 分支3：全人群通投
   return { mode: "通投", segments: SEGMENTS.slice() };
@@ -479,8 +479,8 @@ function parseSegments(includeRaw, excludeRaw) {
 
 function renderSegmentCell(seg) {
   if (!seg) return '<span style="color:#94A3B8">—</span>';
-  const c = seg.mode === '正向定向' ? ['#2563EB', '#EFF6FF']
-          : seg.mode === '负向排除' ? ['#D97706', '#FFFBEB']
+  // 对外统一展示为「定向」（正向定向/负向排除为内部逻辑，不区分）；余下为通投
+  const c = seg.mode === '定向' ? ['#2563EB', '#EFF6FF']
           : ['#64748B', '#F1F5F9'];
   const tags = seg.segments.map(s =>
     `<span style="display:inline-block;background:#F1F5F9;color:#334155;border-radius:4px;padding:1px 6px;margin:1px;font-size:11px">${s}</span>`

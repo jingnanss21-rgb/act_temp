@@ -47,18 +47,18 @@ function diagParseSegments(includeRaw, excludeRaw) {
   const inc = String(includeRaw || "").split(",").map(s => s.trim()).filter(Boolean);
   const exc = String(excludeRaw || "").split(",").map(s => s.trim().replace("排除", "")).filter(Boolean);
   if (inc.length) {
-    return { mode: "正向定向", segments: DIAG_FREQ_4.filter(s => inc.includes(s)) };
+    return { mode: "定向", segments: DIAG_FREQ_4.filter(s => inc.includes(s)) };
   }
   if (exc.length) {
-    return { mode: "负向排除", segments: DIAG_FREQ_4.filter(s => !exc.includes(s)).concat(["新客"]) };
+    return { mode: "定向", segments: DIAG_FREQ_4.filter(s => !exc.includes(s)).concat(["新客"]) };
   }
   return { mode: "通投", segments: DIAG_SEGMENTS.slice() };
 }
 
 function diagRenderSegment(seg) {
   if (!seg) return '<span style="color:#94A3B8;font-size:11px">—</span>';
-  const c = seg.mode === '正向定向' ? ['#2563EB', '#EFF6FF']
-          : seg.mode === '负向排除' ? ['#D97706', '#FFFBEB']
+  // 对外统一展示为「定向」（正向定向/负向排除为内部逻辑，不区分）；余下为通投
+  const c = seg.mode === '定向' ? ['#2563EB', '#EFF6FF']
           : ['#64748B', '#F1F5F9'];
   const tags = seg.segments.map(s =>
     `<span style="display:inline-block;background:#F1F5F9;color:#334155;border-radius:4px;padding:1px 6px;margin:1px;font-size:11px">${s}</span>`
