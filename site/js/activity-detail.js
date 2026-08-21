@@ -57,6 +57,7 @@ let spOwnerMap = {};      // sp_name → owner (负责人)
 let kaOwnerMap = {};      // brand_id → owner (KA负责人)
 let trackedBrandIds = new Set(); // 跟进表里有的品牌id
 let pinnedBrandIds = new Set();  // 置顶品牌id（来自 brand_top_records）
+let segmentMap = {};             // activity_id → { include, exclude }（人群覆盖配置）
 
 // 多选筛选状态
 let filterAssistants = new Set();
@@ -75,7 +76,7 @@ async function loadActivityDetail() {
   try {
     const viewName = getViewName();
     // 并行加载所有数据
-    const [actData, brandResult, merchantResult, spResult, kaResult, pinnedResult] = await Promise.all([
+    const [actData, brandResult, merchantResult, spResult, kaResult, pinnedResult, segmentResult] = await Promise.all([
       fetchAllFromView(viewName, '*'),
       supabaseClient.from('tem_brand_daily')
         .select('brand_id, category_l4, store_count, w7_avg_txn_count, w7_mini_program_ratio, report_date')
@@ -88,6 +89,8 @@ async function loadActivityDetail() {
         .select('brand_id, owner').limit(500),
       supabaseClient.from('brand_top_records')
         .select('brand_id').limit(100),
+      supabaseClient.from('act_segment_config')
+        .select('activity_id, freq_include, freq_exclude').limit(10000),
     ]);
 
     // 活动去重：同一 activity_id 只保留一条
@@ -213,6 +216,11 @@ async function loadActivityDetail() {
         contact_assistant: merchant.contact_assistant || '-',
         operating_sp: merchant.operating_sp || '-',
         owner: owner || '-',
+        // 人群覆盖（来自 act_segment_config，活动级静态属性）
+        segment: (function () {
+          const sm = segmentMap[String(act.activity_id)];
+          return sm ? parseSegments(sm.include, sm.exclude) : null;
+        })(),
       });
     }
 
@@ -441,6 +449,45 @@ function fmtPricePower(val) {
   return (n / 100).toFixed(2) + '%';
 }
 
+// ============================================================
+// 人群覆盖：判定逻辑（与 iwiki 4033860123 规则一致）
+// 输入：定向标签_频次正选 / 定向标签_频次排除（来自 act_segment_config）
+// 三分支：正向定向 / 负向排除 / 通投
+// ============================================================
+const SEGMENTS = ["高频", "低频", "沉默", "流失", "新客"];
+const FREQ_4 = ["高频", "低频", "沉默", "流失"];
+
+function parseSegments(includeRaw, excludeRaw) {
+  const inc = String(includeRaw || "").split(",").map(s => s.trim()).filter(Boolean);
+  const exc = String(excludeRaw || "").split(",").map(s => s.trim().replace("排除", "")).filter(Boolean);
+  if (inc.length) {
+    // 分支1：正向定向（不含新客，新客无频次标签）
+    return { mode: "正向定向", segments: FREQ_4.filter(s => inc.includes(s)) };
+  }
+  if (exc.length) {
+    // 分支2：负向排除（含新客，新客永不被"排除高频"类规则排掉）
+    return { mode: "负向排除", segments: FREQ_4.filter(s => !exc.includes(s)).concat(["新客"]) };
+  }
+  // 分支3：全人群通投
+  return { mode: "通投", segments: SEGMENTS.slice() };
+}
+
+function renderSegmentCell(seg) {
+  if (!seg) return '<span style="color:#94A3B8">—</span>';
+  const c = seg.mode === '正向定向' ? ['#2563EB', '#EFF6FF']
+          : seg.mode === '负向排除' ? ['#D97706', '#FFFBEB']
+          : ['#64748B', '#F1F5F9'];
+  const tags = seg.segments.map(s =>
+    `<span style="display:inline-block;background:#F1F5F9;color:#334155;border-radius:4px;padding:1px 6px;margin:1px;font-size:11px">${s}</span>`
+  ).join('');
+  return `<div style="line-height:1.5"><span style="display:inline-block;background:${c[1]};color:${c[0]};border-radius:4px;padding:1px 6px;font-size:11px;font-weight:600;margin-bottom:2px">${seg.mode}</span><br>${tags}</div>`;
+}
+
+function segmentToText(seg) {
+  if (!seg) return '—';
+  return seg.mode + '：' + seg.segments.join('/');
+}
+
 // 限领值格式化：null/undefined → '-'，0 → '不限'，正数 → 千分位
 function fmtLimit(val) {
   if (val === null || val === undefined || val === '') return '-';
@@ -515,9 +562,10 @@ function renderDetailTable() {
       <td class="${rateClass(row.pv_exposure_redeem)}">${fmtRateWithAnomaly(row.pv_exposure_redeem, 'exposure_redeem')}</td>
       <td class="${rateClass(row.w7_store_redeem_rate_uv)}">${fmtStoreRate(row.w7_store_redeem_rate_uv)}</td>
       <td>${fmtStoreRate(row.store_below_threshold)}</td>
+      <td>${row.segment ? renderSegmentCell(row.segment) : '<span style="color:#94A3B8">—</span>'}</td>
     </tr>`;
   }
-  tbody.innerHTML = html || '<tr><td colspan="32" style="text-align:center;padding:32px;color:var(--text-muted)">暂无数据</td></tr>';
+  tbody.innerHTML = html || '<tr><td colspan="33" style="text-align:center;padding:32px;color:var(--text-muted)">暂无数据</td></tr>';
 
   renderPagination(total, totalPages);
 }
@@ -563,7 +611,7 @@ function exportDetailCSV() {
     '单用户限领', '单日限领',
     '曝光UV', '领取UV', '核销UV', 'UV曝光领取率', 'UV领取核销率', 'UV曝光核销率',
     '曝光PV', '领取PV', '核销PV', 'PV曝光领取率', 'PV领取核销率', 'PV曝光核销率',
-    '到店核销率', '未达门槛占比',
+    '到店核销率', '未达门槛占比', '人群覆盖',
   ];
 
   const csvRows = [headers.join(',')];
@@ -592,6 +640,7 @@ function exportDetailCSV() {
       fmtRate(row.pv_exposure_claim), fmtRate(row.pv_claim_redeem), fmtRate(row.pv_exposure_redeem),
       fmtRate(row.w7_store_redeem_rate_uv),
       fmtRate(row.store_below_threshold),
+      segmentToText(row.segment),
     ];
     csvRows.push(vals.join(','));
   }

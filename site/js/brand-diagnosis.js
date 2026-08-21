@@ -37,6 +37,35 @@ const DIAG_METRICS_EXT = [
 
 const DIAG_CATEGORIES = ['茶饮咖啡', '中式快餐', '西式快餐', '正餐', '小吃', '甜品烘焙'];
 
+// 人群覆盖（与 iwiki 4033860123 规则一致，复用主活动明细口径）
+// 独立命名，避免与 activity-detail.js 的 parseSegments / SEGMENTS 全局重名冲突
+const DIAG_SEGMENTS = ["高频", "低频", "沉默", "流失", "新客"];
+const DIAG_FREQ_4 = ["高频", "低频", "沉默", "流失"];
+let diagSegMap = {}; // activity_id → { include, exclude }（人群覆盖配置）
+
+function diagParseSegments(includeRaw, excludeRaw) {
+  const inc = String(includeRaw || "").split(",").map(s => s.trim()).filter(Boolean);
+  const exc = String(excludeRaw || "").split(",").map(s => s.trim().replace("排除", "")).filter(Boolean);
+  if (inc.length) {
+    return { mode: "正向定向", segments: DIAG_FREQ_4.filter(s => inc.includes(s)) };
+  }
+  if (exc.length) {
+    return { mode: "负向排除", segments: DIAG_FREQ_4.filter(s => !exc.includes(s)).concat(["新客"]) };
+  }
+  return { mode: "通投", segments: DIAG_SEGMENTS.slice() };
+}
+
+function diagRenderSegment(seg) {
+  if (!seg) return '<span style="color:#94A3B8;font-size:11px">—</span>';
+  const c = seg.mode === '正向定向' ? ['#2563EB', '#EFF6FF']
+          : seg.mode === '负向排除' ? ['#D97706', '#FFFBEB']
+          : ['#64748B', '#F1F5F9'];
+  const tags = seg.segments.map(s =>
+    `<span style="display:inline-block;background:#F1F5F9;color:#334155;border-radius:4px;padding:1px 6px;margin:1px;font-size:11px">${s}</span>`
+  ).join('');
+  return `<span style="display:inline-block;background:${c[1]};color:${c[0]};border-radius:4px;padding:1px 6px;font-size:11px;font-weight:600;margin:1px">${seg.mode}</span><span style="margin-left:2px">${tags}</span>`;
+}
+
 // ============================================================
 // 初始化
 // ============================================================
@@ -89,9 +118,10 @@ async function initDiagnosis() {
       return map;
     }
 
-    const [actData, mcRes] = await Promise.all([
+    const [actData, mcRes, segRes] = await Promise.all([
       fetchAllFromView(getViewName(), '*'),
       supabaseClient.from('tem_merchant_contacts').select('brand_id,brand_name,operating_sp,contact_assistant'),
+      supabaseClient.from('act_segment_config').select('activity_id, freq_include, freq_exclude').limit(10000),
     ]);
 
     // 品牌→类目映射（品牌日报四级类目）— 仅查有活动的品牌，确保不遗漏
@@ -103,10 +133,18 @@ async function initDiagnosis() {
       a._category = brandCatMap[a.brand_id] || a.category_name || '';
     }
 
-    diagActivities = actData.filter(a => a.exposure_uv > 0 && a.exposure_pv > 0);
+    // 需求一：过滤掉「筛选时间窗内曝光(UV)<10」的活动
+    // 整页剔除（健康评分 / 雷达图 / 活动明细网格均不计低曝光活动）
+    diagActivities = actData.filter(a => (a.exposure_uv || 0) >= 10);
 
     for (const mc of (mcRes.data || [])) {
       diagMerchants[mc.brand_id] = mc;
+    }
+
+    // 人群覆盖配置映射（activity_id → 定向字段）
+    diagSegMap = {};
+    for (const s of (segRes.data || [])) {
+      if (s.activity_id != null) diagSegMap[String(s.activity_id)] = { include: s.freq_include, exclude: s.freq_exclude };
     }
 
     // FIX: Bug #1 - 活动去重（按 activity_id 去重，避免重复 report_date 导致同活动出现多次）
@@ -1166,6 +1204,8 @@ function renderDiagActivities() {
   });
 
   return activities.map(a => {
+    const segRaw = diagSegMap[String(a.activity_id)];
+    const segInfo = segRaw ? diagParseSegments(segRaw.include, segRaw.exclude) : null;
     const eVal = t === 'uv' ? (a.exposure_uv||0) : (a.exposure_pv||0);
     const cVal = t === 'uv' ? (a.claim_uv||0) : (a.claim_pv||0);
     const rVal = t === 'uv' ? (a.redeem_uv||0) : (a.redeem_pv||0);
@@ -1220,6 +1260,7 @@ function renderDiagActivities() {
 
     return `<div class="diag-activity-card">
       <div class="diag-act-card-name">${a.activity_name} <span style="font-size:11px;color:#94a3b8;font-weight:400">(ID: ${a.activity_id})</span></div>
+      <div class="diag-act-segment" style="margin:4px 0 10px;font-size:11px;color:#64748B">👥 人群覆盖：${diagRenderSegment(segInfo)}</div>
       <div class="diag-act-blocks">
         ${!isExt ? `<div class="diag-act-block diag-act-block-exposure">
           <div class="diag-act-block-label">曝光</div>
@@ -1301,6 +1342,15 @@ function renderDiagCompareTable() {
     html += '<th class="diag-ct-th-act" title="' + a.activity_name.replace(/"/g, '&quot;') + ' (ID: ' + a.activity_id + ')">' + name + '<br><span style="font-size:10px;color:#94a3b8;font-weight:400">ID: ' + a.activity_id + '</span></th>';
   }
   html += '</tr></thead><tbody>';
+
+  // 人群覆盖行（与第一列对齐，逐活动显示标签）
+  html += '<tr><td class="diag-ct-td-label">👥 人群覆盖</td>';
+  for (const a of activities) {
+    const segRaw = diagSegMap[String(a.activity_id)];
+    const segInfo = segRaw ? diagParseSegments(segRaw.include, segRaw.exclude) : null;
+    html += '<td class="diag-ct-td">' + diagRenderSegment(segInfo) + '</td>';
+  }
+  html += '</tr>';
 
   for (const mk of metrics) {
     html += '<tr><td class="diag-ct-td-label">' + mk.label + '</td>';
