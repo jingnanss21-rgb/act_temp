@@ -1786,6 +1786,40 @@ body {
   color: var(--primary);
 }
 
+/* 活动卡片：指标/趋势 切换 tab（趋势线放大展示） */
+.diag-act-card-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.diag-act-card-head .diag-act-card-name { margin-bottom: 0; }
+.diag-act-tabs {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+.diag-act-tab {
+  padding: 3px 10px;
+  font-size: 11px;
+  border-radius: 6px;
+  cursor: pointer;
+  background: #F1F5F9;
+  color: #64748B;
+  border: 1px solid transparent;
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+.diag-act-tab:hover {
+  background: #EFF6FF;
+  color: #2563EB;
+}
+.diag-act-tab.active {
+  background: #2563EB;
+  color: #fff;
+}
+
 /* 对比表格 */
 .diag-ct-wrap {
   overflow-x: auto;

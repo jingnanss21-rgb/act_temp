@@ -42,6 +42,7 @@ const DIAG_CATEGORIES = ['茶饮咖啡', '中式快餐', '西式快餐', '正餐
 const DIAG_SEGMENTS = ["高频", "低频", "沉默", "流失", "新客"];
 const DIAG_FREQ_4 = ["高频", "低频", "沉默", "流失"];
 let diagSegMap = {}; // activity_id → { include, exclude }（人群覆盖配置）
+let diagCouponMap = {}; // activity_id → { discount, threshold }（券面额/门槛，单位：分）
 
 function diagParseSegments(includeRaw, excludeRaw) {
   const inc = String(includeRaw || "").split(",").map(s => s.trim()).filter(Boolean);
@@ -358,7 +359,7 @@ function switchDiagMode(mode) {
 // ============================================================
 // 运行诊断
 // ============================================================
-function runDiagnosis() {
+async function runDiagnosis() {
   const input = document.getElementById('diag-input').value.trim();
   if (!input) return;
 
@@ -444,6 +445,16 @@ function runDiagnosis() {
     : null;
   if (worstMetric) diagSelectedMetric = worstMetric.key;
 
+  // 需求：区域D 券面额/门槛（底层表 tem_activity_daily 的 discount_amount/threshold_amount，单位「分」）
+  // 路②：前端按品牌 activity_id 列表单独查底层表建映射，不依赖改视图、不碰 Supabase
+  const actIds = [...new Set(brandActivities.map(a => a.activity_id).filter(Boolean))];
+  try {
+    diagCouponMap = await fetchDiagCouponInfo(actIds);
+  } catch (e) {
+    console.warn('券信息拉取失败，区域D不展示券面额/门槛:', e.message);
+    diagCouponMap = {};
+  }
+
   renderDiagResult();
 }
 
@@ -451,6 +462,7 @@ function runDiagnosis() {
 // 渲染完整诊断结果
 // ============================================================
 function renderDiagResult() {
+  destroyAllActTrendCharts(); // 重建DOM前销毁旧活动级趋势图，避免泄漏
   const b = diagCurrentBrand;
   const cat = b.category;
   // 防御：类目缺失（未匹配到有效四级类目）时不退化成满分，直接提示暂不评分
@@ -939,6 +951,36 @@ async function fetchDiagTrendData(brandId) {
   return diagTrendCache;
 }
 
+// 按 activity_id 列表批量查底层表 tem_activity_daily，取每个活动最新一天的券面额/门槛
+// 返回 { activity_id: { discount, threshold } }，单位「分」
+async function fetchDiagCouponInfo(activityIds) {
+  const map = {};
+  if (!activityIds.length) return map;
+  const CHUNK = 80;
+  for (let i = 0; i < activityIds.length; i += CHUNK) {
+    const chunk = activityIds.slice(i, i + CHUNK);
+    let offset = 0;
+    while (true) {
+      const { data, error } = await supabaseClient
+        .from('tem_activity_daily')
+        .select('activity_id, discount_amount, threshold_amount, coupon_type')
+        .in('activity_id', chunk)
+        .order('report_date', { ascending: false })
+        .range(offset, offset + 999);
+      if (error) throw error;
+      // 每个 activity_id 第一条即最新一天（order desc）；只要有面额或门槛就记录（缺失则跳过取更早有值天）
+      for (const r of (data || [])) {
+        if (r.activity_id != null && !map[r.activity_id] && (r.discount_amount != null || r.threshold_amount != null)) {
+          map[r.activity_id] = { discount: r.discount_amount, threshold: r.threshold_amount, type: r.coupon_type };
+        }
+      }
+      if (!data || data.length < 1000) break;
+      offset += 1000;
+    }
+  }
+  return map;
+}
+
 async function renderDiagTrend() {
   const body = document.getElementById('diag-trend-body');
   if (!body || !diagCurrentBrand) return;
@@ -1037,7 +1079,157 @@ async function renderDiagTrend() {
     });
   } catch (err) {
     const bodyNow = document.getElementById('diag-trend-body');
-    if (bodyNow) bodyNow.innerHTML = '<div style="padding:40px 0;text-align:center;color:#DC2626;font-size:13px">趋势数据加载失败: ' + err.message + '</div>';
+      if (bodyNow) bodyNow.innerHTML = '<div style="padding:40px 0;text-align:center;color:#DC2626;font-size:13px">趋势数据加载失败: ' + err.message + '</div>';
+  }
+}
+
+// ============================================================
+// 区域 D: 单活动趋势线（懒加载，完整版曝光+核销 / 对外版只核销）
+// ============================================================
+let diagActTrendCharts = {};   // activityId → Chart 实例
+let diagActTrendCache = {};    // activityId → { dates, byDate }
+
+function destroyAllActTrendCharts() {
+  for (const k in diagActTrendCharts) {
+    try { diagActTrendCharts[k].destroy(); } catch (e) {}
+  }
+  diagActTrendCharts = {};
+}
+
+async function fetchDiagActivityTrendData(activityId) {
+  if (diagActTrendCache[activityId]) return diagActTrendCache[activityId];
+  const { data: latestRows } = await supabaseClient
+    .from('tem_activity_daily').select('report_date').order('report_date', { ascending: false }).limit(1);
+  const maxDate = latestRows && latestRows.length > 0 ? latestRows[0].report_date : null;
+  if (!maxDate) return { dates: [], byDate: {} };
+  const start = new Date(maxDate);
+  start.setDate(start.getDate() - 29);
+  const startStr = start.toISOString().substring(0, 10);
+
+  let all = [], offset = 0, limit = 1000;
+  while (true) {
+    const { data, error } = await supabaseClient.from('tem_activity_daily')
+      .select('report_date,exposure_uv,exposure_pv,redeem_uv,redeem_pv')
+      .eq('activity_id', activityId)
+      .gte('report_date', startStr)
+      .order('report_date', { ascending: true })
+      .range(offset, offset + limit - 1);
+    if (error) throw error;
+    all = all.concat(data || []);
+    if (!data || data.length < limit) break;
+    offset += limit;
+  }
+  const byDate = {};
+  for (const r of all) {
+    byDate[r.report_date] = {
+      exposure_uv: r.exposure_uv || 0, exposure_pv: r.exposure_pv || 0,
+      redeem_uv: r.redeem_uv || 0, redeem_pv: r.redeem_pv || 0,
+    };
+  }
+  const result = { dates: Object.keys(byDate).sort(), byDate };
+  diagActTrendCache[activityId] = result;
+  return result;
+}
+
+async function renderDiagActivityTrend(activityId, containerId) {
+  const container = document.getElementById(containerId);
+  if (!container || container.dataset.rendered === '1') return;
+  try {
+    const [trend] = await Promise.all([fetchDiagActivityTrendData(activityId), loadChartJsOnce()]);
+    const now = document.getElementById(containerId);
+    if (!now || now.dataset.rendered === '1') return;
+    if (trend.dates.length === 0) {
+      now.innerHTML = '<div style="padding:16px 0;color:#94A3B8;font-size:12px">近30天暂无按日数据</div>';
+      now.dataset.rendered = '1';
+      return;
+    }
+    const t = window.currentMetricType || 'uv';
+    const isExt = diagMode === 'external'; // 对外版只画核销线，与品牌趋势线逻辑一致
+    const unitWord = t === 'pv' ? '次数' : '人数';
+    const labels = trend.dates.map(d => d.substring(5));
+    const exposureData = trend.dates.map(d => trend.byDate[d]['exposure_' + t]);
+    const redeemData = trend.dates.map(d => trend.byDate[d]['redeem_' + t]);
+
+    now.innerHTML = '<canvas id="' + containerId + '-cv"></canvas>';
+    const cv = document.getElementById(containerId + '-cv');
+    const ctx = cv.getContext('2d');
+
+    if (diagActTrendCharts[activityId]) { try { diagActTrendCharts[activityId].destroy(); } catch (e) {} }
+
+    const datasets = [];
+    if (!isExt) {
+      datasets.push({
+        label: '曝光' + unitWord, data: exposureData,
+        borderColor: '#2563EB', backgroundColor: 'rgba(37,99,235,0.08)', fill: true,
+        tension: 0.3, pointRadius: 2, pointHoverRadius: 4, borderWidth: 2, yAxisID: 'yExposure',
+      });
+    }
+    datasets.push({
+      label: '核销' + unitWord, data: redeemData,
+      borderColor: '#F59E0B', backgroundColor: 'rgba(245,158,11,0.08)', fill: isExt,
+      tension: 0.3, pointRadius: 2, pointHoverRadius: 4, borderWidth: 2, yAxisID: 'yRedeem',
+    });
+
+    diagActTrendCharts[activityId] = new Chart(ctx, {
+      type: 'line',
+      data: { labels: labels, datasets: datasets },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        interaction: { mode: 'index', intersect: false },
+        plugins: {
+          legend: { position: 'top', align: 'end', labels: { boxWidth: 12, boxHeight: 12, font: { size: 11 }, color: '#475569' } },
+          tooltip: { callbacks: { label: (item) => item.dataset.label + ': ' + Number(item.raw).toLocaleString('zh-CN') } },
+        },
+        scales: (function () {
+          const sc = {
+            x: { grid: { display: false }, ticks: { color: '#94A3B8', font: { size: 10 }, maxTicksLimit: 15 } },
+            yRedeem: {
+              position: isExt ? 'left' : 'right',
+              title: { display: true, text: '核销' + unitWord, color: '#F59E0B', font: { size: 11 } },
+              ticks: { color: '#F59E0B', font: { size: 10 }, callback: (v) => v >= 10000 ? (v / 10000) + 'w' : v },
+              grid: isExt ? { color: '#F1F5F9' } : { drawOnChartArea: false },
+              beginAtZero: true,
+            },
+          };
+          if (!isExt) {
+            sc.yExposure = {
+              position: 'left',
+              title: { display: true, text: '曝光' + unitWord, color: '#2563EB', font: { size: 11 } },
+              ticks: { color: '#2563EB', font: { size: 10 }, callback: (v) => v >= 10000 ? (v / 10000) + 'w' : v },
+              grid: { color: '#F1F5F9' },
+              beginAtZero: true,
+            };
+          }
+          return sc;
+        })(),
+      },
+    });
+    now.dataset.rendered = '1';
+  } catch (err) {
+    const now = document.getElementById(containerId);
+    if (now) { now.innerHTML = '<div style="padding:16px 0;color:#DC2626;font-size:12px">趋势加载失败: ' + err.message + '</div>'; now.dataset.rendered = '1'; }
+  }
+}
+
+function switchDiagActView(activityId, view) {
+  const m = document.getElementById('diag-act-metrics-' + activityId);
+  const tr = document.getElementById('diag-act-trend-' + activityId);
+  if (!m || !tr) return;
+  const card = tr.closest('.diag-activity-card');
+  if (card) card.querySelectorAll('.diag-act-tab').forEach(t => t.classList.toggle('active', t.dataset.v === view));
+  if (view === 'trend') {
+    m.style.display = 'none';
+    tr.style.display = 'block';
+    renderDiagActivityTrend(activityId, 'diag-act-trend-' + activityId);
+  } else {
+    tr.style.display = 'none';
+    m.style.display = 'block';
+    // 切回指标时销毁趋势图实例，避免堆积
+    if (diagActTrendCharts[activityId]) {
+      try { diagActTrendCharts[activityId].destroy(); } catch (e) {}
+      delete diagActTrendCharts[activityId];
+    }
+    tr.dataset.rendered = '';
   }
 }
 
@@ -1206,6 +1398,7 @@ function renderDiagActivities() {
   return activities.map(a => {
     const segRaw = diagSegMap[String(a.activity_id)];
     const segInfo = segRaw ? diagParseSegments(segRaw.include, segRaw.exclude) : null;
+    const coupon = diagCouponMap[String(a.activity_id)];
     const eVal = t === 'uv' ? (a.exposure_uv||0) : (a.exposure_pv||0);
     const cVal = t === 'uv' ? (a.claim_uv||0) : (a.claim_pv||0);
     const rVal = t === 'uv' ? (a.redeem_uv||0) : (a.redeem_pv||0);
@@ -1259,8 +1452,16 @@ function renderDiagActivities() {
     }
 
     return `<div class="diag-activity-card">
-      <div class="diag-act-card-name">${a.activity_name} <span style="font-size:11px;color:#94a3b8;font-weight:400">(ID: ${a.activity_id})</span></div>
-      <div class="diag-act-segment" style="margin:4px 0 10px;font-size:11px;color:#64748B">👥 人群覆盖：${diagRenderSegment(segInfo)}</div>
+      <div class="diag-act-card-head">
+        <div class="diag-act-card-name" style="margin-bottom:0">${a.activity_name} <span style="font-size:11px;color:#94a3b8;font-weight:400">(ID: ${a.activity_id})</span></div>
+        <div class="diag-act-tabs">
+          <span class="diag-act-tab active" data-v="metrics" onclick="switchDiagActView('${a.activity_id}','metrics')">指标</span>
+          <span class="diag-act-tab" data-v="trend" onclick="switchDiagActView('${a.activity_id}','trend')">趋势</span>
+        </div>
+      </div>
+      <div id="diag-act-metrics-${a.activity_id}">
+      <div class="diag-act-segment" style="margin:4px 0 6px;font-size:11px;color:#64748B">👥 人群覆盖：${diagRenderSegment(segInfo)}</div>
+      <div class="diag-act-segment" style="margin:0 0 10px;font-size:11px;color:#64748B">🎟️ 券面额/门槛：${coupon ? fmtCoupon(coupon.discount, coupon.threshold, coupon.type) : '<span style="color:#94A3B8">—</span>'}</div>
       <div class="diag-act-blocks">
         ${!isExt ? `<div class="diag-act-block diag-act-block-exposure">
           <div class="diag-act-block-label">曝光</div>
@@ -1284,6 +1485,8 @@ function renderDiagActivities() {
         </div>
       </div>
       ${actMetrics.map(m => rateRow(m.label, m.val, m.med)).join('')}
+      </div>
+      <div id="diag-act-trend-${a.activity_id}" style="display:none;height:240px"></div>
     </div>`;
   }).join('');
 }
@@ -1302,6 +1505,7 @@ function toggleDiagDetail() {
 }
 
 function toggleDiagView() {
+  destroyAllActTrendCharts(); // 切视图会替换 diag-d-body 的DOM，先销毁旧活动趋势图
   diagViewMode = diagViewMode === 'card' ? 'table' : 'card';
   const body = document.getElementById('diag-d-body');
   const toggle = document.getElementById('diag-view-toggle');
@@ -1352,6 +1556,14 @@ function renderDiagCompareTable() {
   }
   html += '</tr>';
 
+  // 券面额/门槛行（完整版/对外版均显示）
+  html += '<tr><td class="diag-ct-td-label">🎟️ 券面额/门槛</td>';
+  for (const a of activities) {
+    const cp = diagCouponMap[String(a.activity_id)];
+    html += '<td class="diag-ct-td">' + (cp ? fmtCoupon(cp.discount, cp.threshold, cp.type) : '<span style="color:#94A3B8">—</span>') + '</td>';
+  }
+  html += '</tr>';
+
   for (const mk of metrics) {
     html += '<tr><td class="diag-ct-td-label">' + mk.label + '</td>';
     for (const a of activities) {
@@ -1370,6 +1582,47 @@ function renderDiagCompareTable() {
 // ============================================================
 // 工具函数
 // ============================================================
+// 券面额/门槛格式化（数据库单位为「分」，除以100得元）
+// 逻辑：满X减Y / 无门槛减Y（threshold≤1分视作无门槛）/ 仅门槛 / 均无则「—」
+// 按券类型渲染券面额/门槛（单位：分）。门槛与优惠文案组合：
+//   折扣类 → 无门槛/9折；兑换类 → 无门槛/4.99元兑换；满减/立减 → 满¥30减¥10.5（连写）
+function fmtCoupon(discount, threshold, type) {
+  const d = (discount != null) ? Math.round(discount) : null;   // 分
+  const t = (threshold != null) ? Math.round(threshold) : null; // 分
+  const typeStr = String(type || '');
+  const yuan = (fen) => {
+    const x = fen / 100;
+    return Number.isInteger(x) ? '¥' + x : '¥' + parseFloat(x.toFixed(2));
+  };
+  // 门槛文案
+  const thrTxt = (t == null || t <= 1) ? '无门槛' : '满' + yuan(t);
+  // 优惠文案（按券类型）
+  let offTxt;
+  if (typeStr.indexOf('折扣') >= 0) {
+    const x = d / 10; // 90 → 9折, 88 → 8.8折
+    offTxt = (Number.isInteger(x) ? x : parseFloat(x.toFixed(1))) + '折';
+  } else if (typeStr.indexOf('兑换') >= 0 || typeStr.indexOf('换购') >= 0) {
+    const v = d / 100; // 兑换价为「元」，不加 ¥ 符号（如 4.99元兑换）
+    offTxt = (Number.isInteger(v) ? v : parseFloat(v.toFixed(2))) + '元兑换';
+  } else if (typeStr.indexOf('立减') >= 0 || typeStr.indexOf('满减') >= 0) {
+    offTxt = '减' + yuan(d);
+  } else if (typeStr.indexOf('赠品') >= 0) {
+    offTxt = '0元';
+  } else if (typeStr.indexOf('次卡') >= 0) {
+    offTxt = '次卡';
+  } else if (d != null && d > 0) {
+    offTxt = '减' + yuan(d);
+  } else {
+    offTxt = '';
+  }
+  if (!offTxt) return '<span style="color:#94A3B8">—</span>';
+  // 满减/立减：门槛与减额连写（满¥30减¥10.5）；其它用斜杠分隔（无门槛/9折，与用户示例一致）
+  if (typeStr.indexOf('满减') >= 0 || typeStr.indexOf('立减') >= 0) {
+    return thrTxt + offTxt;
+  }
+  return thrTxt + '/' + offTxt;
+}
+
 function fmtPctDiag(v) {
   if (isNaN(v) || v === null || v === undefined) return '-';
   return (v * 100).toFixed(1) + '%';
