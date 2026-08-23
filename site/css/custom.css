@@ -1820,6 +1820,33 @@ body {
   color: #fff;
 }
 
+/* 活动趋势线指标切换 chips */
+.diag-act-trend-chips {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 8px;
+  flex-wrap: wrap;
+}
+.dat-chip {
+  padding: 3px 10px;
+  font-size: 11px;
+  border-radius: 6px;
+  cursor: pointer;
+  color: #6B7280;
+  background: #F1F5F9;
+  border: 1px solid transparent;
+  transition: all 0.15s;
+  user-select: none;
+  white-space: nowrap;
+}
+.dat-chip:hover {
+  background: #E2E8F0;
+}
+.dat-chip.active {
+  background: #2563EB;
+  color: #fff;
+}
+
 /* 对比表格 */
 .diag-ct-wrap {
   overflow-x: auto;

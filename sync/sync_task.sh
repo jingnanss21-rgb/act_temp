@@ -22,12 +22,21 @@ echo "▶ 同步活动日报..."
 python3 sync_all.py --table activities
 
 echo ""
+echo "▶ 同步活动每日快照（线上主表 tem_activity_daily）..."
+python3 sync_v2.py --latest
+
+echo ""
 echo "▶ 同步品牌日报..."
 python3 sync_all.py --table brand_daily
 
 echo ""
 echo "▶ 同步商户跟进表..."
 python3 sync_all.py --table merchant
+
+echo ""
+echo "▶ 同步人群覆盖配置（act_segment_config，源自 iwiki 餐饮活动全字段表）..."
+export IWIKI_TOKEN="${IWIKI_TOKEN:-$(grep '^IWIKI_TOKEN=' .env 2>/dev/null | cut -d= -f2-)}"
+python3 pull_segments.py
 
 # 低频数据：服务商 + KA（仅 all 模式）
 if [ "$MODE" = "all" ]; then

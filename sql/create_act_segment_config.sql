@@ -14,9 +14,17 @@ CREATE TABLE IF NOT EXISTS act_segment_config (
 );
 
 ALTER TABLE act_segment_config ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "anon_select" ON act_segment_config;
 CREATE POLICY "anon_select" ON act_segment_config FOR SELECT TO anon USING (true);
+DROP POLICY IF EXISTS "anon_insert" ON act_segment_config;
 CREATE POLICY "anon_insert" ON act_segment_config FOR INSERT TO anon WITH CHECK (true);
+DROP POLICY IF EXISTS "anon_update" ON act_segment_config;
 CREATE POLICY "anon_update" ON act_segment_config FOR UPDATE TO anon USING (true) WITH CHECK (true);
+DROP POLICY IF EXISTS "anon_delete" ON act_segment_config;
 CREATE POLICY "anon_delete" ON act_segment_config FOR DELETE TO anon USING (true);
 
 CREATE INDEX IF NOT EXISTS idx_act_segment_config_updated ON act_segment_config (updated_at);
+
+-- 建表后刷新 schema 缓存（让 PostgREST API 能看到新表）
+NOTIFY pgrst, 'reload schema';

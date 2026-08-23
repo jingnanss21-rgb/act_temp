@@ -31,6 +31,10 @@ import sys
 import csv
 import subprocess
 import argparse
+from dotenv import load_dotenv
+
+# 与兄弟脚本(sync_v2.py/sync_all.py)一致：自动加载同目录 .env 的 SUPABASE 凭据
+load_dotenv()
 
 # 全字段表含超长字段（如 base64 推荐池信息），放宽 csv 字段上限
 csv.field_size_limit(sys.maxsize)

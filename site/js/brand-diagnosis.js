@@ -306,7 +306,7 @@ function renderDiagSearch(container) {
             oninput="onDiagInput(this.value)" onfocus="onDiagInput(this.value)">
           <div class="diag-dropdown" id="diag-dropdown"></div>
           <button class="btn-primary" onclick="runDiagnosis()">生成诊断</button>
-          <button class="btn-export" style="display:none" id="diag-export-btn" onclick="exportDiagnosis()">导出PDF</button>
+          <button class="btn-export" style="display:none" id="diag-export-html-btn" onclick="exportDiagnosisHTML()">导出HTML</button>
         </div>
         <div class="diag-mode-tabs" id="diag-mode-tabs">
           <span class="diag-mode-tab active" data-mode="full" onclick="switchDiagMode('full')">完整版</span>
@@ -463,6 +463,7 @@ async function runDiagnosis() {
 // ============================================================
 function renderDiagResult() {
   destroyAllActTrendCharts(); // 重建DOM前销毁旧活动级趋势图，避免泄漏
+  diagActTrendMetric = {};    // 重建卡片时重置活动趋势指标选择（卡片默认高亮「全部」）
   const b = diagCurrentBrand;
   const cat = b.category;
   // 防御：类目缺失（未匹配到有效四级类目）时不退化成满分，直接提示暂不评分
@@ -745,45 +746,240 @@ function renderDiagResult() {
   renderBenchmark();
   renderDiagTrend();
   // 显示导出按钮
-  const exportBtn = document.getElementById('diag-export-btn');
-  if (exportBtn) exportBtn.style.display = 'inline-block';
+  const exportHtmlBtn = document.getElementById('diag-export-html-btn');
+  if (exportHtmlBtn) exportHtmlBtn.style.display = 'inline-block';
 }
 
 // ============================================================
-// 健康评分环形图（Canvas）
+// 导出可交互 HTML（单文件、自包含：CSS内联 + 图表转图 + 精简切换JS）
+// 解决 PDF 导出"tab 不可点 + 页面变形"的死穴：HTML 双击浏览器打开，
+// 内部 tab（卡片/对比视图、活动指标/趋势、明细展开）仍可切换，且不变形。
+// 按"只导当前看到的"：仅含当前模式（完整版或对外版），顶部完整版/对外版 tab 无意义故移除。
 // ============================================================
-function exportDiagnosis() {
+async function exportDiagnosisHTML() {
   const container = document.getElementById('diag-result');
-  if (!container) return;
+  if (!container) { alert('暂无可导出的诊断内容'); return; }
+  const btn = document.getElementById('diag-export-html-btn');
+  if (btn) { btn.disabled = true; btn.textContent = '导出中…'; }
 
-  // 展开活动明细
-  const detailBody = document.getElementById('diag-d-body');
-  const detailToggle = document.getElementById('diag-d-toggle');
-  const wasHidden = detailBody && detailBody.style.display === 'none';
-  if (wasHidden && detailBody) {
-    detailBody.style.display = 'block';
+  try {
+    const t = window.currentMetricType || 'uv';
+    const isExt = diagMode === 'external';
+    const metrics = (diagMode === 'external' ? DIAG_METRICS_EXT : DIAG_METRICS);
+    const actMetrics = getActTrendMetrics(isExt);
+    const actMetricLabel = { all: '全部', exposure: '曝光', claim: '领取', redeem: '核销', store: '到店' };
+
+    // 1) 品牌级趋势图（async，已渲染到可见容器，可直接转图）
+    await renderDiagTrend();
+
+    // 2) 区域C：为每个指标预渲染一份静态变体块（纯 HTML，无 canvas）
+    const benchVariants = metrics.map(m => {
+      const disp = (m.key === diagSelectedMetric) ? '' : 'display:none';
+      return '<div class="diag-bench-variant" data-metric="' + m.key + '" style="' + disp + '">' + buildBenchmarkHTML(m.key) + '</div>';
+    }).join('');
+
+    // 3) 活动趋势：为每个指标预渲染为图片（离屏可见容器，保证 canvas 有尺寸，避免空白）
+    const cardEls = container.querySelectorAll('.diag-activity-card');
+    const actIds = [];
+    cardEls.forEach(c => {
+      const m = c.querySelector('[id^="diag-act-metrics-"]');
+      if (m) actIds.push(m.id.replace('diag-act-metrics-', ''));
+    });
+    const actTrendImgs = {};
+    for (const id of actIds) {
+      actTrendImgs[id] = {};
+      let trend;
+      try { trend = await fetchDiagActivityTrendData(id); } catch (e) { trend = { dates: [], byDate: {} }; }
+      for (const m of actMetrics) {
+        if (!trend.dates || trend.dates.length === 0) { actTrendImgs[id][m] = { empty: true }; continue; }
+        const cfg = buildActTrendConfig(id, trend, m, t, isExt);
+        const tmp = document.createElement('div');
+        tmp.style.cssText = 'position:fixed;left:-99999px;top:0;width:600px;height:240px;visibility:hidden';
+        const cv = document.createElement('canvas'); cv.width = 600; cv.height = 240;
+        tmp.appendChild(cv); document.body.appendChild(tmp);
+        try {
+          const chart = new Chart(cv.getContext('2d'), {
+            type: 'line',
+            data: { labels: cfg.labels, datasets: cfg.datasets },
+            options: {
+              responsive: false, maintainAspectRatio: false, animation: false,
+              plugins: { legend: { display: true, position: 'top', align: 'end', labels: { boxWidth: 12, boxHeight: 12, font: { size: 11 }, color: '#475569' } }, tooltip: { enabled: false } },
+              scales: cfg.scales,
+            },
+          });
+          chart.update('none');
+          actTrendImgs[id][m] = { url: cv.toDataURL('image/png') };
+          chart.destroy();
+        } catch (e) { actTrendImgs[id][m] = { empty: true }; }
+        document.body.removeChild(tmp);
+      }
+    }
+
+    // 4) 克隆并构造双视图（卡片视图 / 对比视图）
+    const clone = container.cloneNode(true);
+    const dBody = clone.querySelector('#diag-d-body');
+    if (dBody) {
+      const currentIsTable = (diagViewMode === 'table');
+      const cardView = document.createElement('div'); cardView.id = 'diag-d-card-view';
+      const tableView = document.createElement('div'); tableView.id = 'diag-d-table-view'; tableView.style.display = 'none';
+      if (!currentIsTable) {
+        while (dBody.firstChild) cardView.appendChild(dBody.firstChild);
+        tableView.innerHTML = renderDiagCompareTable();
+      } else {
+        while (dBody.firstChild) tableView.appendChild(dBody.firstChild);
+        cardView.innerHTML = renderDiagActivities();
+      }
+      dBody.innerHTML = '';
+      dBody.appendChild(cardView);
+      dBody.appendChild(tableView);
+    }
+
+    // 5) 区域C 变体注入（替换原单指标内容）
+    const benchContent = clone.querySelector('#diag-benchmark-content');
+    if (benchContent) benchContent.innerHTML = benchVariants;
+
+    // 6) 活动趋势 变体注入（指标 chips + 各指标图片，默认显示当前选中指标）
+    actIds.forEach(id => {
+      const wrap = clone.querySelector('#diag-act-trend-wrap-' + id);
+      if (!wrap) return;
+      const selected = (diagActTrendMetric[id] && actMetrics.indexOf(diagActTrendMetric[id]) >= 0) ? diagActTrendMetric[id] : getActTrendDefault(isExt);
+      let html = '<div class="diag-act-trend-chips">';
+      actMetrics.forEach(m => {
+        html += '<span class="dat-chip ' + (m === selected ? 'active' : '') + '" data-m="' + m + '">' + actMetricLabel[m] + '</span>';
+      });
+      html += '</div>';
+      actMetrics.forEach(m => {
+        const disp = (m === selected) ? 'block' : 'none';
+        const v = actTrendImgs[id] ? actTrendImgs[id][m] : null;
+        const inner = (v && v.url)
+          ? '<img src="' + v.url + '" style="width:100%;height:240px;object-fit:contain" alt="">'
+          : '<div style="padding:16px 0;color:#94A3B8;font-size:12px">该活动近30天暂无按日数据</div>';
+        html += '<div class="diag-act-trend-img" data-metric="' + m + '" style="display:' + disp + ';height:240px">' + inner + '</div>';
+      });
+      wrap.innerHTML = html;
+    });
+
+    // 7) 其余 canvas（品牌趋势、评分环等）→ img
+    const origCanvases = [...container.querySelectorAll('canvas')];
+    const cloneCanvases = [...clone.querySelectorAll('canvas')];
+    cloneCanvases.forEach((cv, i) => {
+      const orig = origCanvases[i] || cv;
+      try {
+        const img = document.createElement('img');
+        img.src = orig.toDataURL('image/png');
+        img.style.width = cv.style.width || (cv.getAttribute('width') ? cv.getAttribute('width') + 'px' : '100%');
+        img.style.height = cv.style.height || (cv.getAttribute('height') ? cv.getAttribute('height') + 'px' : 'auto');
+        img.className = cv.className || '';
+        cv.replaceWith(img);
+      } catch (e) {}
+    });
+
+    // 8) 清理：移除导出按钮、完整版/对外版顶部 tab；清除 onclick（改用注入的精简JS）
+    clone.querySelectorAll('.btn-export, .diag-mode-tabs').forEach(el => el.remove());
+    clone.querySelectorAll('[onclick]').forEach(el => el.removeAttribute('onclick'));
+
+    // 9) 内联 CSS（同域 fetch；去除 @media print 块避免干扰）
+    let cssText = '';
+    try {
+      const resp = await fetch('css/custom.css');
+      if (resp.ok) cssText = await resp.text();
+    } catch (e) {}
+    cssText = cssText.replace(/@media\s+print\s*\{[\s\S]*?\}\s*\}/g, '');
+
+    // 10) 组装自包含 HTML
+    const b = diagCurrentBrand;
+    const modeLabel = isExt ? '对外版' : '完整版';
+    const brandName = (b && b.brand_name) || 'report';
+    const dateStr = new Date().toISOString().slice(0, 10);
+    const title = `品牌诊断_${modeLabel}_${brandName}_${dateStr}`;
+
+    // 注入的精简交互：DOM show/hide + active 切换（区域C指标 / 活动趋势指标 / 卡片-对比 / 明细展开）
+    const interactJS = `
+document.addEventListener('click', function(e){
+  var t = e.target.closest('.diag-view-toggle-btn');
+  if (t) {
+    var cv = document.getElementById('diag-d-card-view');
+    var tv = document.getElementById('diag-d-table-view');
+    if (!cv || !tv) return;
+    var showTable = tv.style.display === 'none';
+    cv.style.display = showTable ? 'none' : 'block';
+    tv.style.display = showTable ? 'block' : 'none';
+    t.textContent = showTable ? '卡片视图' : '对比视图';
+    return;
   }
+  var dt = e.target.closest('#diag-d-toggle');
+  if (dt) {
+    var body = document.getElementById('diag-d-body');
+    if (!body) return;
+    var hidden = body.style.display === 'none';
+    body.style.display = hidden ? 'block' : 'none';
+    dt.textContent = hidden ? '收起 ∧' : '展开 ∨';
+    return;
+  }
+  var dct = e.target.closest('.dc-tab');
+  if (dct) {
+    var metric = dct.getAttribute('data-m');
+    var content = document.getElementById('diag-benchmark-content');
+    if (!content) return;
+    content.querySelectorAll('.diag-bench-variant').forEach(function(v){ v.style.display = (v.getAttribute('data-metric') === metric) ? 'block' : 'none'; });
+    content.querySelectorAll('.dc-tab').forEach(function(tb){ tb.classList.toggle('active', tb.getAttribute('data-m') === metric); });
+    return;
+  }
+  var chip = e.target.closest('.dat-chip');
+  if (chip) {
+    var m2 = chip.getAttribute('data-m');
+    var card = chip.closest('.diag-activity-card');
+    if (!card) return;
+    card.querySelectorAll('.dat-chip').forEach(function(c){ c.classList.toggle('active', c === chip); });
+    card.querySelectorAll('.diag-act-trend-img').forEach(function(im){ im.style.display = (im.getAttribute('data-metric') === m2) ? 'block' : 'none'; });
+    return;
+  }
+  var tab = e.target.closest('.diag-act-tab');
+  if (tab) {
+    var card2 = tab.closest('.diag-activity-card');
+    if (!card2) return;
+    var m3 = card2.querySelector('[id^="diag-act-metrics-"]');
+    if (!m3) return;
+    var aid = m3.id.replace('diag-act-metrics-', '');
+    var isTrend = tab.getAttribute('data-v') === 'trend';
+    card2.querySelectorAll('.diag-act-tab').forEach(function(x){ x.classList.toggle('active', x === tab); });
+    var metrics = document.getElementById('diag-act-metrics-' + aid);
+    var wrap = document.getElementById('diag-act-trend-wrap-' + aid);
+    if (metrics) metrics.style.display = isTrend ? 'none' : 'block';
+    if (wrap) wrap.style.display = isTrend ? 'block' : 'none';
+    return;
+  }
+});`;
 
-  // 设置打印标题（显示在PDF文件名中）
-  const modeLabel = diagMode === 'external' ? '_对外版' : '';
-  const brandName = diagCurrentBrand?.brand_name || 'report';
-  const origTitle = document.title;
-  document.title = `品牌诊断${modeLabel}_${brandName}_${new Date().toISOString().slice(0,10)}`;
+    const extraCSS = `
+body{background:#EEF2F7;margin:0;padding:24px;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;color:#1E293B}
+.diag-page{max-width:1080px;margin:0 auto;background:#fff;border-radius:12px;box-shadow:0 4px 20px rgba(15,23,42,.10);padding:24px 28px}
+.btn-export{display:none!important}
+.diag-view-toggle-btn{cursor:pointer}
+.diag-act-tab{cursor:pointer}
+.dc-tab{cursor:pointer}
+.dat-chip{cursor:pointer}
+#diag-d-toggle{cursor:pointer}
+.diag-export-head{margin-bottom:14px;font-size:13px;color:#64748B}
+`;
 
-  // 标记打印区域
-  document.body.classList.add('printing-diagnosis');
-  container.classList.add('print-target');
+    const html = '<!DOCTYPE html>\n<html lang="zh-CN">\n<head>\n<meta charset="utf-8">\n<meta name="viewport" content="width=device-width,initial-scale=1">\n<title>' + title + '</title>\n<style>' + cssText + '</style>\n<style>' + extraCSS + '</style>\n</head>\n<body>\n<div class="diag-page">\n' + clone.outerHTML + '\n</div>\n<script>' + interactJS + '</script>\n</body>\n</html>';
 
-  window.print();
+    // 11) 触发下载
+    const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = title + '.html';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
 
-  // 恢复
-  document.body.classList.remove('printing-diagnosis');
-  container.classList.remove('print-target');
-  document.title = origTitle;
-
-  if (wasHidden && detailBody) {
-    detailBody.style.display = 'none';
-    if (detailToggle) detailToggle.textContent = '展开 ∨';
+  } catch (err) {
+    alert('导出失败：' + err.message);
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '导出HTML'; }
   }
 }
 
@@ -1088,6 +1284,7 @@ async function renderDiagTrend() {
 // ============================================================
 let diagActTrendCharts = {};   // activityId → Chart 实例
 let diagActTrendCache = {};    // activityId → { dates, byDate }
+let diagActTrendMetric = {};   // activityId → 'all'|'exposure'|'claim'|'redeem'|'store'（活动趋势线指标切换）
 
 function destroyAllActTrendCharts() {
   for (const k in diagActTrendCharts) {
@@ -1099,7 +1296,7 @@ function destroyAllActTrendCharts() {
 async function fetchDiagActivityTrendData(activityId) {
   if (diagActTrendCache[activityId]) return diagActTrendCache[activityId];
   const { data: latestRows } = await supabaseClient
-    .from('tem_activity_daily').select('report_date').order('report_date', { ascending: false }).limit(1);
+    .from('tem_activity_daily').select('report_date').eq('activity_id', activityId).order('report_date', { ascending: false }).limit(1);
   const maxDate = latestRows && latestRows.length > 0 ? latestRows[0].report_date : null;
   if (!maxDate) return { dates: [], byDate: {} };
   const start = new Date(maxDate);
@@ -1109,7 +1306,7 @@ async function fetchDiagActivityTrendData(activityId) {
   let all = [], offset = 0, limit = 1000;
   while (true) {
     const { data, error } = await supabaseClient.from('tem_activity_daily')
-      .select('report_date,exposure_uv,exposure_pv,redeem_uv,redeem_pv')
+      .select('report_date,exposure_uv,exposure_pv,claim_uv,claim_pv,redeem_uv,redeem_pv,store_redeem_rate_uv')
       .eq('activity_id', activityId)
       .gte('report_date', startStr)
       .order('report_date', { ascending: true })
@@ -1123,7 +1320,9 @@ async function fetchDiagActivityTrendData(activityId) {
   for (const r of all) {
     byDate[r.report_date] = {
       exposure_uv: r.exposure_uv || 0, exposure_pv: r.exposure_pv || 0,
+      claim_uv: r.claim_uv || 0, claim_pv: r.claim_pv || 0,
       redeem_uv: r.redeem_uv || 0, redeem_pv: r.redeem_pv || 0,
+      store_rate: parseStoreRate(r.store_redeem_rate_uv),
     };
   }
   const result = { dates: Object.keys(byDate).sort(), byDate };
@@ -1131,77 +1330,107 @@ async function fetchDiagActivityTrendData(activityId) {
   return result;
 }
 
+function getStoreFallbackRate(activityId) {
+  const acts = (diagCurrentBrand && diagCurrentBrand.activities) || [];
+  const a = acts.find(x => String(x.activity_id) === String(activityId));
+  const sr = a ? parseStoreRate(a.store_redeem_rate_uv) : NaN;
+  return (!isNaN(sr) && sr > 0) ? sr : NaN;
+}
+
+// 对外版活动趋势只保留「领取 / 核销 / 到店」，完整版保留「全部 / 曝光 / 领取 / 核销 / 到店」
+function getActTrendMetrics(isExt) {
+  return isExt ? ['claim', 'redeem', 'store'] : ['all', 'exposure', 'claim', 'redeem', 'store'];
+}
+function getActTrendDefault(isExt) {
+  return isExt ? 'redeem' : 'all';
+}
+function getActTrendLabel(m) {
+  return { all: '全部', exposure: '曝光', claim: '领取', redeem: '核销', store: '到店' }[m] || m;
+}
+function renderActTrendChips(activityId) {
+  const isExt = diagMode === 'external';
+  const list = getActTrendMetrics(isExt);
+  const sel = (diagActTrendMetric[activityId] && list.indexOf(diagActTrendMetric[activityId]) >= 0) ? diagActTrendMetric[activityId] : getActTrendDefault(isExt);
+  return list.map(m => '<span class="dat-chip ' + (m === sel ? 'active' : '') + '" data-m="' + m + '" onclick="switchDiagActTrend(\'' + activityId + '\',\'' + m + '\')">' + getActTrendLabel(m) + '</span>').join('');
+}
+
+// 构建活动趋势图配置（供 live 渲染与导出图片复用以保持口径一致）
+function buildActTrendConfig(activityId, trend, metric, t, isExt) {
+  const unitWord = t === 'pv' ? '次数' : '人数';
+  const labels = trend.dates.map(d => d.substring(5));
+  const get = (d, k) => (trend.byDate[d] && trend.byDate[d][k] != null) ? trend.byDate[d][k] : 0;
+  const exposureData = trend.dates.map(d => get(d, 'exposure_' + t));
+  const claimData = trend.dates.map(d => get(d, 'claim_' + t));
+  const redeemData = trend.dates.map(d => get(d, 'redeem_' + t));
+  const fallbackRate = getStoreFallbackRate(activityId);
+  const storeData = trend.dates.map(d => {
+    const r = get(d, 'redeem_' + t);
+    const rate = trend.byDate[d] && trend.byDate[d].store_rate;
+    const useRate = (rate && rate > 0) ? rate : fallbackRate;
+    if (r > 0 && useRate > 0) return Math.max(r, r / useRate);
+    return null;
+  });
+
+  const show = (m) => metric === 'all' ? (isExt ? m === 'redeem' : (m === 'exposure' || m === 'redeem')) : metric === m;
+  const hasLeft = show('exposure') || show('claim');
+  const datasets = [];
+  if (show('exposure')) datasets.push({ label: '曝光' + unitWord, data: exposureData, borderColor: '#2563EB', backgroundColor: 'rgba(37,99,235,0.08)', fill: true, tension: 0.3, pointRadius: 2, pointHoverRadius: 4, borderWidth: 2, yAxisID: 'yExposure' });
+  if (show('claim')) datasets.push({ label: '领取' + unitWord, data: claimData, borderColor: '#10B981', backgroundColor: 'rgba(16,185,129,0.08)', fill: true, tension: 0.3, pointRadius: 2, pointHoverRadius: 4, borderWidth: 2, yAxisID: 'yExposure' });
+  if (show('redeem')) datasets.push({ label: '核销' + unitWord, data: redeemData, borderColor: '#F59E0B', backgroundColor: 'rgba(245,158,11,0.08)', fill: metric === 'redeem' || isExt, tension: 0.3, pointRadius: 2, pointHoverRadius: 4, borderWidth: 2, yAxisID: 'yRedeem' });
+  if (show('store')) datasets.push({ label: '到店' + unitWord, data: storeData, borderColor: '#8B5CF6', backgroundColor: 'rgba(139,92,246,0.08)', fill: metric === 'store', tension: 0.3, pointRadius: 2, pointHoverRadius: 4, borderWidth: 2, yAxisID: 'yRedeem', spanGaps: true });
+
+  const scales = { x: { grid: { display: false }, ticks: { color: '#94A3B8', font: { size: 10 }, maxTicksLimit: 15 } } };
+  if (hasLeft) {
+    scales.yExposure = {
+      position: 'left',
+      title: { display: true, text: (show('exposure') ? '曝光' : '领取') + unitWord, color: show('exposure') ? '#2563EB' : '#10B981', font: { size: 11 } },
+      ticks: { color: show('exposure') ? '#2563EB' : '#10B981', font: { size: 10 }, callback: (v) => v >= 10000 ? (v / 10000) + 'w' : v },
+      grid: { color: '#F1F5F9' }, beginAtZero: true,
+    };
+  }
+  scales.yRedeem = {
+    position: hasLeft ? 'right' : 'left',
+    title: { display: true, text: (show('redeem') ? '核销' : '到店') + unitWord, color: show('redeem') ? '#F59E0B' : '#8B5CF6', font: { size: 11 } },
+    ticks: { color: show('redeem') ? '#F59E0B' : '#8B5CF6', font: { size: 10 }, callback: (v) => v >= 10000 ? (v / 10000) + 'w' : v },
+    grid: hasLeft ? { drawOnChartArea: false } : { color: '#F1F5F9' }, beginAtZero: true,
+  };
+  return { labels, datasets, scales };
+}
+
 async function renderDiagActivityTrend(activityId, containerId) {
   const container = document.getElementById(containerId);
   if (!container || container.dataset.rendered === '1') return;
+  const isExt = diagMode === 'external'; // 对外版默认只画核销线，与品牌趋势线逻辑一致（必须在使用前声明）
+  let metric = diagActTrendMetric[activityId] || getActTrendDefault(isExt);
+  if (isExt && ['claim', 'redeem', 'store'].indexOf(metric) < 0) metric = 'redeem';
+  const t = window.currentMetricType || 'uv';
   try {
     const [trend] = await Promise.all([fetchDiagActivityTrendData(activityId), loadChartJsOnce()]);
     const now = document.getElementById(containerId);
     if (!now || now.dataset.rendered === '1') return;
     if (trend.dates.length === 0) {
-      now.innerHTML = '<div style="padding:16px 0;color:#94A3B8;font-size:12px">近30天暂无按日数据</div>';
+      now.innerHTML = '<div style="padding:16px 0;color:#94A3B8;font-size:12px">该活动近30天暂无按日数据</div>';
       now.dataset.rendered = '1';
       return;
     }
-    const t = window.currentMetricType || 'uv';
-    const isExt = diagMode === 'external'; // 对外版只画核销线，与品牌趋势线逻辑一致
-    const unitWord = t === 'pv' ? '次数' : '人数';
-    const labels = trend.dates.map(d => d.substring(5));
-    const exposureData = trend.dates.map(d => trend.byDate[d]['exposure_' + t]);
-    const redeemData = trend.dates.map(d => trend.byDate[d]['redeem_' + t]);
-
+    const cfg = buildActTrendConfig(activityId, trend, metric, t, isExt);
     now.innerHTML = '<canvas id="' + containerId + '-cv"></canvas>';
     const cv = document.getElementById(containerId + '-cv');
     const ctx = cv.getContext('2d');
 
     if (diagActTrendCharts[activityId]) { try { diagActTrendCharts[activityId].destroy(); } catch (e) {} }
 
-    const datasets = [];
-    if (!isExt) {
-      datasets.push({
-        label: '曝光' + unitWord, data: exposureData,
-        borderColor: '#2563EB', backgroundColor: 'rgba(37,99,235,0.08)', fill: true,
-        tension: 0.3, pointRadius: 2, pointHoverRadius: 4, borderWidth: 2, yAxisID: 'yExposure',
-      });
-    }
-    datasets.push({
-      label: '核销' + unitWord, data: redeemData,
-      borderColor: '#F59E0B', backgroundColor: 'rgba(245,158,11,0.08)', fill: isExt,
-      tension: 0.3, pointRadius: 2, pointHoverRadius: 4, borderWidth: 2, yAxisID: 'yRedeem',
-    });
-
     diagActTrendCharts[activityId] = new Chart(ctx, {
       type: 'line',
-      data: { labels: labels, datasets: datasets },
+      data: { labels: cfg.labels, datasets: cfg.datasets },
       options: {
         responsive: true, maintainAspectRatio: false,
         interaction: { mode: 'index', intersect: false },
         plugins: {
           legend: { position: 'top', align: 'end', labels: { boxWidth: 12, boxHeight: 12, font: { size: 11 }, color: '#475569' } },
-          tooltip: { callbacks: { label: (item) => item.dataset.label + ': ' + Number(item.raw).toLocaleString('zh-CN') } },
+          tooltip: { callbacks: { label: (item) => item.dataset.label + ': ' + Number(item.raw == null ? 0 : item.raw).toLocaleString('zh-CN') } },
         },
-        scales: (function () {
-          const sc = {
-            x: { grid: { display: false }, ticks: { color: '#94A3B8', font: { size: 10 }, maxTicksLimit: 15 } },
-            yRedeem: {
-              position: isExt ? 'left' : 'right',
-              title: { display: true, text: '核销' + unitWord, color: '#F59E0B', font: { size: 11 } },
-              ticks: { color: '#F59E0B', font: { size: 10 }, callback: (v) => v >= 10000 ? (v / 10000) + 'w' : v },
-              grid: isExt ? { color: '#F1F5F9' } : { drawOnChartArea: false },
-              beginAtZero: true,
-            },
-          };
-          if (!isExt) {
-            sc.yExposure = {
-              position: 'left',
-              title: { display: true, text: '曝光' + unitWord, color: '#2563EB', font: { size: 11 } },
-              ticks: { color: '#2563EB', font: { size: 10 }, callback: (v) => v >= 10000 ? (v / 10000) + 'w' : v },
-              grid: { color: '#F1F5F9' },
-              beginAtZero: true,
-            };
-          }
-          return sc;
-        })(),
+        scales: cfg.scales,
       },
     });
     now.dataset.rendered = '1';
@@ -1213,33 +1442,45 @@ async function renderDiagActivityTrend(activityId, containerId) {
 
 function switchDiagActView(activityId, view) {
   const m = document.getElementById('diag-act-metrics-' + activityId);
-  const tr = document.getElementById('diag-act-trend-' + activityId);
-  if (!m || !tr) return;
-  const card = tr.closest('.diag-activity-card');
+  const wrap = document.getElementById('diag-act-trend-wrap-' + activityId);
+  if (!m || !wrap) return;
+  const card = wrap.closest('.diag-activity-card');
   if (card) card.querySelectorAll('.diag-act-tab').forEach(t => t.classList.toggle('active', t.dataset.v === view));
   if (view === 'trend') {
     m.style.display = 'none';
-    tr.style.display = 'block';
+    wrap.style.display = 'block';
     renderDiagActivityTrend(activityId, 'diag-act-trend-' + activityId);
   } else {
-    tr.style.display = 'none';
+    wrap.style.display = 'none';
     m.style.display = 'block';
     // 切回指标时销毁趋势图实例，避免堆积
     if (diagActTrendCharts[activityId]) {
       try { diagActTrendCharts[activityId].destroy(); } catch (e) {}
       delete diagActTrendCharts[activityId];
     }
-    tr.dataset.rendered = '';
+    const tr = document.getElementById('diag-act-trend-' + activityId);
+    if (tr) tr.dataset.rendered = '';
   }
+}
+
+// 活动趋势线指标切换：全部 / 曝光 / 领取 / 核销 / 到店（到店核销率→到店人数）
+function switchDiagActTrend(activityId, metric) {
+  diagActTrendMetric[activityId] = metric;
+  const chips = document.getElementById('diag-act-trend-chips-' + activityId);
+  if (chips) chips.querySelectorAll('.dat-chip').forEach(c => c.classList.toggle('active', c.dataset.m === metric));
+  if (diagActTrendCharts[activityId]) { try { diagActTrendCharts[activityId].destroy(); } catch (e) {} delete diagActTrendCharts[activityId]; }
+  const tr = document.getElementById('diag-act-trend-' + activityId);
+  if (tr) { tr.dataset.rendered = ''; tr.innerHTML = ''; }
+  renderDiagActivityTrend(activityId, 'diag-act-trend-' + activityId);
 }
 
 // ============================================================
 // 区域 C: 行业标杆
 // ============================================================
-function renderBenchmark() {
+function buildBenchmarkHTML(metricKey) {
   const b = diagCurrentBrand;
   const cat = b.category;
-  const mk = DIAG_METRICS.find(m => m.key === diagSelectedMetric);
+  const mk = DIAG_METRICS.find(m => m.key === metricKey);
   const top3 = (diagCatTop3[cat] || {})[mk.key] || [];
   const med = (diagCatMedians[cat] || {})[mk.key] || 0;
   const p75Val = (diagCatP25[cat] || {})[mk.key] || 0;
@@ -1259,7 +1500,7 @@ function renderBenchmark() {
     <div class="diag-c-header">
       <h3 class="diag-section-title" style="margin:0">🏆 行业标杆参考（${cat} · ${mk.label} Top3）</h3>
       <div class="diag-c-tabs">
-        ${(diagMode === 'external' ? DIAG_METRICS_EXT : DIAG_METRICS).map(m => `<span class="dc-tab ${m.key === diagSelectedMetric ? 'active' : ''}"
+        ${(diagMode === 'external' ? DIAG_METRICS_EXT : DIAG_METRICS).map(m => `<span class="dc-tab ${m.key === metricKey ? 'active' : ''}" data-m="${m.key}"
           onclick="switchDiagMetric('${m.key}')">${m.label}</span>`).join('')}
       </div>
     </div>
@@ -1337,7 +1578,11 @@ function renderBenchmark() {
     </div>
   `;
 
-  document.getElementById('diag-benchmark-content').innerHTML = html;
+  return html;
+}
+
+function renderBenchmark(metricOverride) {
+  document.getElementById('diag-benchmark-content').innerHTML = buildBenchmarkHTML(metricOverride || diagSelectedMetric);
 }
 
 // FIX: Bug #9 - 自动生成标杆洞察
@@ -1486,7 +1731,10 @@ function renderDiagActivities() {
       </div>
       ${actMetrics.map(m => rateRow(m.label, m.val, m.med)).join('')}
       </div>
-      <div id="diag-act-trend-${a.activity_id}" style="display:none;height:240px"></div>
+      <div id="diag-act-trend-wrap-${a.activity_id}" style="display:none">
+        <div class="diag-act-trend-chips" id="diag-act-trend-chips-${a.activity_id}">${renderActTrendChips(a.activity_id)}</div>
+        <div id="diag-act-trend-${a.activity_id}" style="height:240px"></div>
+      </div>
     </div>`;
   }).join('');
 }
@@ -1542,8 +1790,9 @@ function renderDiagCompareTable() {
   let html = '<div class="diag-ct-wrap"><table class="diag-ct">';
   html += '<thead><tr><th class="diag-ct-th-label">指标</th>';
   for (const a of activities) {
-    const name = a.activity_name.length > 10 ? a.activity_name.slice(0, 10) + '…' : a.activity_name;
-    html += '<th class="diag-ct-th-act" title="' + a.activity_name.replace(/"/g, '&quot;') + ' (ID: ' + a.activity_id + ')">' + name + '<br><span style="font-size:10px;color:#94a3b8;font-weight:400">ID: ' + a.activity_id + '</span></th>';
+    const an = a.activity_name || '活动' + a.activity_id;
+    const name = an.length > 10 ? an.slice(0, 10) + '…' : an;
+    html += '<th class="diag-ct-th-act" title="' + an.replace(/"/g, '&quot;') + ' (ID: ' + a.activity_id + ')">' + name + '<br><span style="font-size:10px;color:#94a3b8;font-weight:400">ID: ' + a.activity_id + '</span></th>';
   }
   html += '</tr></thead><tbody>';
 

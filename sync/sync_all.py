@@ -32,7 +32,7 @@ from doc_reader import (
     extract_hyperlinks,
     extract_file_id_from_url,
 )
-from supabase_writer import get_client, upsert_batch
+from supabase_writer import get_client, upsert_batch, upsert_batch_subproc
 
 # iWiki 品牌日报切换日期：>= 此日期走 iWiki CSV，< 走原腾讯文档
 IWIKI_BRAND_CUTOVER_DATE = os.environ.get("IWIKI_BRAND_CUTOVER_DATE", "2026-05-04")
@@ -262,7 +262,10 @@ def sync_brand_daily(client):
         "近7日_低频应曝UV_二选一渠道": "w7_low_freq_should_uv_dual",
         "近7日_低频尽曝UV_二选一渠道": "w7_low_freq_exposure_uv_dual",
         "序号": "seq_no",
-        "日期": "report_date",
+        # 注意：不要在此映射 "日期"→"report_date"！
+        # CSV 的「日期」列可能是脏值（如 0721 那次是 20260621），会覆盖掉
+        # 下面 record 初始化时设定的正确 report_date（= latest_date / 同步日期）。
+        # report_date 一律以"同步日期"为准，绝不信任 CSV 内的日期列。
     }
 
     # ── 尝试 iWiki CSV 链路 ──
@@ -298,8 +301,8 @@ def sync_brand_daily(client):
         print(f"  [iWiki] 品牌日报加载失败，回退腾讯文档: {e}")
 
     if iwiki_ok and iwiki_rows:
-        upsert_batch(client, "tem_brand_daily", iwiki_rows,
-                      conflict_columns=["brand_id", "report_date"])
+        upsert_batch_subproc(client, "tem_brand_daily", iwiki_rows,
+                             conflict_columns=["brand_id", "report_date"])
         return
 
     # ── 兜底：原腾讯文档链路 ──
@@ -345,8 +348,8 @@ def sync_brand_daily(client):
         except Exception as e:
             print(f"    ✗ 处理失败: {e}")
 
-    upsert_batch(client, "tem_brand_daily", all_rows,
-                  conflict_columns=["brand_id", "report_date"])
+    upsert_batch_subproc(client, "tem_brand_daily", all_rows,
+                          conflict_columns=["brand_id", "report_date"])
 
 
 def sync_merchant(client):
@@ -368,7 +371,8 @@ def sync_merchant(client):
             "brand_name": _safe_str(row.get("品牌名称", "")),
             "operating_sp": _safe_str(row.get("经营服务商", "")),
             "coupon_sp": _safe_str(row.get("制券服务商", "")),
-            "contact_assistant": _safe_str(row.get("对接助理", "")),
+            # 跟进总表 2026-06-17 起拆分为"原-对接助理"/"新-对接助理"，以 F 列"新-对接助理"为准
+            "contact_assistant": _safe_str(row.get("新-对接助理", row.get("对接助理", ""))),
             "brand_status": _safe_str(row.get("品牌状态", "")),
             "brand_tier": _safe_str(row.get("分层", "")),
             "coupon_type": _safe_str(row.get("券类型", "")),

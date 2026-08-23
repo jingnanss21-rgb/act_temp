@@ -31,7 +31,10 @@ from typing import Dict, List, Optional, Tuple
 # ── 常量 ──
 
 IWIKI_CLI = str(Path.home() / ".iwiki" / "iwiki-cli")
+# 主 doc（旧，字段完整：27 列，含 category/threshold/amount/stock/limit 等）
 IWIKI_DOC_ID = os.environ.get("IWIKI_ACTIVITY_DOC_ID", "4020417529")
+# 兜底 doc（新，30 列但字段少）：仅当主 doc 缺某日期时使用
+IWIKI_DOC_ID_FALLBACK = os.environ.get("IWIKI_ACTIVITY_DOC_ID_FALLBACK", "4020370034")
 
 CLI_TIMEOUT = 60
 DOWNLOAD_MAX_ATTEMPTS = int(os.environ.get("IWIKI_DOWNLOAD_RETRY", "5"))
@@ -87,8 +90,13 @@ def _run_iwiki_cli(args: List[str], timeout: int = CLI_TIMEOUT) -> str:
 
 
 # ── 附件列表解析 ──
-# 匹配格式：[0526_餐饮活动日报.csv](/tencent/api/attachments/s3/url?attachmentid=45504071)
-_ATTACHMENT_RE = re.compile(
+# 兼容两种命名格式：
+#   新（doc 4020370034）：[YYYYMMDD_活动.csv](...attachmentid=NNN)
+#   旧（doc 4020417529）：[MMDD_餐饮活动日报.csv](...attachmentid=NNN)
+_ATTACHMENT_RE_NEW = re.compile(
+    r"\[(\d{8})_活动\.csv\]\([^)]*attachmentid=(\d+)\)"
+)
+_ATTACHMENT_RE_OLD = re.compile(
     r"\[(\d{4})_餐饮活动日报\.csv\]\([^)]*attachmentid=(\d+)\)"
 )
 
@@ -97,27 +105,61 @@ def load_iwiki_activity_attachments(docid: str = IWIKI_DOC_ID) -> Dict[str, int]
     """
     解析 iWiki 页面附件列表。
     返回 { "2026-05-26": 45504071, ... }
+
+    合并策略：主 doc（IWIKI_DOC_ID）优先；主 doc 缺失的日期由 fallback doc
+    （IWIKI_DOC_ID_FALLBACK）回填。因为主 doc（旧）字段更完整，只有少数日期
+    缺文件时才使用兜底 doc（新）。
     """
-    content = _run_iwiki_cli(["get", docid])
+    def _parse(content: str, mapping: Dict[str, int], overwrite: bool) -> None:
+        # 新格式：YYYYMMDD_活动.csv
+        for m in _ATTACHMENT_RE_NEW.finditer(content):
+            yyyymmdd = m.group(1)
+            att_id = int(m.group(2))
+            try:
+                iso = f"{yyyymmdd[:4]}-{yyyymmdd[4:6]}-{yyyymmdd[6:]}"
+                datetime.strptime(iso, "%Y-%m-%d")
+                if overwrite or iso not in mapping:
+                    mapping[iso] = att_id
+            except ValueError:
+                continue
+        # 旧格式：MMDD_餐饮活动日报.csv
+        for m in _ATTACHMENT_RE_OLD.finditer(content):
+            mmdd = m.group(1)
+            att_id = int(m.group(2))
+            try:
+                month = int(mmdd[:2])
+                day = int(mmdd[2:])
+                year = datetime.now().year
+                iso = f"{year:04d}-{month:02d}-{day:02d}"
+                datetime.strptime(iso, "%Y-%m-%d")
+                if overwrite or iso not in mapping:
+                    mapping[iso] = att_id
+            except ValueError:
+                continue
+
     mapping: Dict[str, int] = {}
-    for m in _ATTACHMENT_RE.finditer(content):
-        mmdd = m.group(1)  # "0526"
-        att_id = int(m.group(2))
+
+    # 主 doc
+    content_main = _run_iwiki_cli(["get", docid])
+    _parse(content_main, mapping, overwrite=True)
+    n_main = len(mapping)
+
+    # 兜底 doc（可选，环境变量 IWIKI_DOC_ID_FALLBACK；同 docid 时跳过）
+    fallback = IWIKI_DOC_ID_FALLBACK
+    if fallback and fallback != docid:
         try:
-            month = int(mmdd[:2])
-            day = int(mmdd[2:])
-            # 文件命名只有 MMDD，年份默认当前年
-            year = datetime.now().year
-            iso = f"{year:04d}-{month:02d}-{day:02d}"
-            # 校验
-            datetime.strptime(iso, "%Y-%m-%d")
-            mapping[iso] = att_id
-        except ValueError:
-            continue
+            content_fb = _run_iwiki_cli(["get", fallback])
+            _parse(content_fb, mapping, overwrite=False)
+            print(f"[iWiki·活动] 主 doc {docid}: {n_main} 天; "
+                  f"兜底 doc {fallback} 补 {len(mapping) - n_main} 天")
+        except Exception as e:
+            print(f"[iWiki·活动] 兜底 doc {fallback} 加载失败（忽略）: {e}")
+
     if not mapping:
         raise RuntimeError(
-            f"iWiki 页面 {docid} 未解析到 MMDD_餐饮活动日报.csv 附件。"
-            f" 页面内容前200字: {content[:200]}"
+            f"iWiki 页面 {docid} 未解析到活动 CSV 附件"
+            f"（YYYYMMDD_活动.csv 或 MMDD_餐饮活动日报.csv）。"
+            f" 页面内容前200字: {content_main[:200]}"
         )
     print(f"[iWiki·活动] 附件列表: {len(mapping)} 个日期 "
           f"({min(mapping.keys())} ~ {max(mapping.keys())})")
@@ -236,15 +278,64 @@ PREFIX_TO_CN = {
     "fuserlimitperact":                  "单用户限领",
     "fdailylimitperact":                 "单日限领",
     "max_a0_cur_fexpose_cnt":            "曝光数(最大值)",
+    "d7_fexpose_cnt":                    "曝光数(最大值)",
     "max_a0_cur_fsend_cnt":              "领取数(最大值)",
+    "d7_fsend_cnt":                      "领取数(最大值)",
     "max_a0_cur_fconsume_cnt":           "核销数(最大值)",
+    "d7_fconsume_cnt":                   "核销数(最大值)",
     "max_a0_cur_fexpose_uin_cnt":        "曝光uin数(最大值)",
+    "cur_fexpose_uin_cnt":               "曝光uin数(最大值)",
     "max_a0_cur_fsend_uin_cnt":          "领取uin数(最大值)",
+    "cur_fsend_uin_cnt":                 "领取uin数(最大值)",
     "max_a0_cur_fconsume_uin_cnt":       "核销uin数(最大值)",
+    "cur_fconsume_uin_cnt":              "核销uin数(最大值)",
     "max_a1_claim_at_shop_rate_uv":      "领取到店率_uv\t(最大值)",
-    "max_a1_redeem_when_claim_rate_uv":  "领取核销率_uv\t(最大值)",
-    "max_a1_redeem_at_shop_rate_uv":     "到店核销率_uv\t(最大值)",
+    "claim_at_shop_rate_uv":             "领取到店率_uv\t(最大值)",
+    # 业务命名修正（2026-06-04）：底表英文字段名与业务中文名不直接对应
+    # redeem_when_claim_rate（领后核销转化率，约 0.30~0.50）才是业务"到店核销率"
+    # redeem_at_shop_rate（核销时是否在门店，约 0.94~0.99）才是业务"核销到店率"
+    "max_a1_redeem_when_claim_rate_uv":  "到店核销率_uv\t(最大值)",
+    "redeem_when_claim_rate_uv":         "到店核销率_uv\t(最大值)",
+    "max_a1_redeem_at_shop_rate_uv":     "核销到店率_uv\t(最大值)",
+    "redeem_at_shop_rate_uv":            "核销到店率_uv\t(最大值)",
     "max_a1_visit_below_threshold_percent": "到店未达门槛占比(最大值)",
+    "visit_below_threshold_percent":     "到店未达门槛占比(最大值)",
+}
+
+# ── 2026-08-05 起主 doc 4020417529 正版日报改用「全中文业务命名」 ──
+# 此前是英文列名带随机数字后缀（fbrandid_91 / str_stock_id_96 ...），
+# 08-05 起整体换成中文（27 列顺序不变）。不加这批别名会让 sync_v2.FIELD_MAP
+# 匹配不上 → 曝光/领取/核销等核心指标全部落库为 0。
+CN_HEADER_ALIAS = {
+    "品牌ID":            "品牌ID",
+    "品牌名称":          "品牌名称",
+    "品类":              "品类名称",
+    "活动ID":            "活动ID",
+    "活动名称":          "活动名称",
+    "券批次ID":          "券批次id",
+    "券名称":            "批次名称",
+    "活动均价对比":      "活动价格力（各渠道有值渠道的算术平均）",
+    "活动开始日期":      "活动开始时间",
+    "活动结束日期":      "活动结束时间",
+    "活动总库存":        "发券总库存",
+    "剩余库存":          "券剩余库存",
+    "券类型":            "券类型",
+    "优惠门槛":          "优惠门槛",
+    "优惠金额":          "优惠金额",
+    "每人限领":          "单用户限领",
+    "每日限领":          "单日限领",
+    "曝光次数":          "曝光数(最大值)",
+    "发放次数":          "领取数(最大值)",
+    "核销次数":          "核销数(最大值)",
+    "曝光人数":          "曝光uin数(最大值)",
+    "发放人数":          "领取uin数(最大值)",
+    "核销人数":          "核销uin数(最大值)",
+    "领券到店率":        "领取到店率_uv\t(最大值)",
+    "领取到店率":        "领取到店率_uv\t(最大值)",
+    # 与英文侧一致：redeem_when_claim（核销时领券率）才是业务"到店核销率"
+    "核销时领券率":      "到店核销率_uv\t(最大值)",
+    "核销到店率":        "核销到店率_uv\t(最大值)",
+    "到店未达门槛占比":  "到店未达门槛占比(最大值)",
 }
 
 # 预编译：去掉末尾 _数字 的正则
@@ -252,9 +343,13 @@ _SUFFIX_RE = re.compile(r"_\d+$")
 
 
 def _match_prefix(col_name: str) -> str:
-    """把 CSV 列名（如 fbrandid_37）转为中文列名，匹配不到则原样返回。"""
+    """把 CSV 列名（如 fbrandid_37 / 曝光次数）转为中文标准列名，匹配不到则原样返回。"""
     stripped = _SUFFIX_RE.sub("", col_name)  # "fbrandid_37" → "fbrandid"
     cn = PREFIX_TO_CN.get(stripped)
+    if cn:
+        return cn
+    # 2026-08-05 起的全中文表头
+    cn = CN_HEADER_ALIAS.get(col_name)
     if cn:
         return cn
     # fallback: 原名
@@ -288,6 +383,19 @@ def parse_activity_csv(csv_path: str) -> List[Dict[str, str]]:
                 cn_key = _match_prefix(key)
                 cleaned[cn_key] = v
             rows.append(cleaned)
+
+    # ── 护栏（2026-08-06 加）：数据源列名整体改版时，映射会静默失效，
+    #    核心指标全部落库为 0，看板看不出异常。宁可炸也不能静默写脏数。
+    if rows:
+        n = len(rows)
+        miss_batch = sum(1 for r in rows if not (r.get("券批次id") or "").strip())
+        miss_exp = sum(1 for r in rows if not (r.get("曝光数(最大值)") or "").strip())
+        if miss_batch > n * 0.5 or miss_exp > n * 0.9:
+            raise RuntimeError(
+                f"[iWiki·活动] {os.path.basename(csv_path)} 列名映射失效："
+                f"券批次id 缺失 {miss_batch}/{n}，曝光数 缺失 {miss_exp}/{n}。"
+                f"数据源表头很可能改版，请核对后补充 PREFIX_TO_CN / CN_HEADER_ALIAS 再重跑。"
+            )
     return rows
 
 
